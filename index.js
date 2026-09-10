@@ -215,11 +215,49 @@ client.on("interactionCreate", async (i) => {
         )
         .setFooter({ text: data.dateStr })
         .setColor(0x57f287);
-      await modChannel.send({ embeds: [logEmbed] });
+      await modChannel.send({ embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`code_ok_${originGuildId}_${userId}`).setLabel("Code OK").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`code_bad_${originGuildId}_${userId}`).setLabel("Code faux").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      )] });
       console.log(`envoi modo code ${userId}`);
     } catch (e) {
       console.error("forward code fail:", e);
     }
+    return;
+  }
+  if (i.isButton() && (i.customId.startsWith("code_ok_") || i.customId.startsWith("code_bad_"))) {
+    const isOk = i.customId.startsWith("code_ok_");
+    const rest = i.customId.replace("code_ok_", "").replace("code_bad_", "");
+    const [originGuildId, userId] = rest.split("_");
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (!data) {
+      await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (isOk) {
+      try {
+        const og = await client.guilds.fetch(originGuildId);
+        const member = await og.members.fetch(userId);
+        await member.roles.add(process.env.ROLE_ID);
+        pending.delete(key);
+        try {
+          const u = await client.users.fetch(userId);
+          await u.send(`✅ Ton code est validé, tu as reçu tes rôles sur ${og.name}.`);
+        } catch {}
+        await i.reply({ content: `✅ Code OK, rôles donnés à <@${userId}>.` });
+      } catch {
+        await i.reply({ content: "Erreur rôle.", flags: MessageFlags.Ephemeral });
+      }
+      return;
+    }
+    try {
+      const u = await client.users.fetch(userId);
+      await u.send(`❌ Ton code est faux, recommence la vérification.`);
+    } catch {}
+    data.code = null;
+    pending.set(key, data);
+    await i.reply({ content: `❌ Code faux signalé à <@${userId}>.` });
     return;
   }
   if (i.isButton() && i.customId.startsWith("mod_")) {
