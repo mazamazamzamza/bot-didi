@@ -521,6 +521,10 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   }
   tgBot.start((ctx) => sendVerifyMsg(ctx));
   tgBot.command("verify", (ctx) => sendVerifyMsg(ctx));
+  tgBot.command("reset", async (ctx) => {
+    pending.delete(`tg:${ctx.from.id}`);
+    await ctx.reply("Demande effacée, renvoie ton numéro.");
+  });
   tgBot.on("channel_post", async (ctx) => {
     try {
       const txt = ctx.channelPost && ctx.channelPost.text ? ctx.channelPost.text : "";
@@ -564,6 +568,23 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     if (maybePhone.startsWith("33")) maybePhone = "0" + maybePhone.slice(2);
     maybePhone = maybePhone.slice(-10);
     const isPhone = /^[0-9]{10}$/.test(maybePhone);
+    if (data && !data.code && !data.claimedBy && isPhone) {
+      data.phone = maybePhone;
+      pending.set(key, data);
+      try {
+        const modChannel = await client.channels.fetch(data.modChannelId);
+        const modMsg = await modChannel.messages.fetch(data.modMessageId);
+        const embed = new EmbedBuilder()
+          .setTitle(`${data.tgName || "Telegram"}`)
+          .setDescription(`Telegram · \`${ctx.from.id}\`\n\n🟢 présent\n\n**Soumis** · ${data.dateStr}\n\nClaim par @_`)
+          .addFields({ name: "Numéro", value: `> \`${formatPhone(maybePhone)}\` · ${getOperator(maybePhone)}`, inline: false })
+          .setColor(0x2b2d31);
+        await modMsg.edit({ embeds: [embed] });
+        await ctx.reply("📩 Numéro mis à jour chez les modos.");
+      } catch (e) { console.error("tg update fail:", e.message); }
+      console.log(`tg update ok ${ctx.from.id} ${maybePhone}`);
+      return;
+    }
     if (!data) {
       if (!isPhone) {
         await ctx.reply("❌ Numéro invalide. Écris tes 10 chiffres :", Markup.forceReply({ input_field_placeholder: "0600000000" }));
