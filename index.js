@@ -98,12 +98,16 @@ async function onReady() {
   readyDone = true;
   console.log(`Connecte en tant que ${client.user.tag}`);
   try {
-    await client.application.commands.create({
+    const cmdData = {
       name: "clear",
       description: "Supprime les messages du salon",
       default_member_permissions: "8192"
-    });
-  } catch {}
+    };
+    await client.application.commands.create(cmdData);
+    for (const [, g] of client.guilds.cache) {
+      try { await g.commands.create(cmdData); } catch {}
+    }
+  } catch (e) { console.error("slash create fail:", e.message); }
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
   const messages = await channel.messages.fetch({ limit: 20 });
   const old = messages.filter((m) => m.author.id === client.user.id);
@@ -133,13 +137,32 @@ client.on("interactionCreate", async (i) => {
       while (true) {
         const msgs = await i.channel.messages.fetch({ limit: 100 });
         if (msgs.size === 0) break;
-        const res = await i.channel.bulkDelete(msgs, true);
-        deleted += res.size;
+        const recent = msgs.filter((m) => Date.now() - m.createdTimestamp < 14 * 24 * 3600 * 1000);
+        if (recent.size > 0) {
+          const res = await i.channel.bulkDelete(recent, true);
+          deleted += res.size;
+        }
+        const oldMsgs = msgs.filter((m) => Date.now() - m.createdTimestamp >= 14 * 24 * 3600 * 1000);
+        for (const [, m] of oldMsgs) {
+          try { await m.delete(); deleted++; } catch {}
+        }
         if (msgs.size < 100) break;
       }
+      const left = await i.channel.messages.fetch({ limit: 5 }).catch(() => null);
+      if (left && left.size > 0) {
+        try {
+          const pos = i.channel.position;
+          const fresh = await i.channel.clone({ position: pos });
+          await i.channel.delete().catch(() => {});
+          await fresh.send("🧹 Salon nettoyé.");
+          await i.editReply(`🧹 Salon cloné, tout supprimé.`);
+          return;
+        } catch (e) { console.error("clone fail:", e.message); }
+      }
       await i.editReply(`🧹 ${deleted} messages supprimés.`);
-    } catch {
-      await i.editReply("Erreur clear.");
+    } catch (e) {
+      console.error("clear fail:", e);
+      await i.editReply(`Erreur clear: ${e.message}`);
     }
     return;
   }
