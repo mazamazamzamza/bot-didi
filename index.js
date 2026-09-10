@@ -55,13 +55,6 @@ async function sendToMods(originInteraction, phone) {
   const dateStr = now.toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const operator = getOperator(phone);
   const formatted = formatPhone(phone);
-  let makersMention = "@Makers";
-  try {
-    const modGuild = await client.guilds.fetch(MOD_GUILD_ID);
-    const roles = await modGuild.roles.fetch();
-    const makers = roles.find((r) => r.name.toLowerCase().includes("makers"));
-    if (makers) makersMention = `<@&${makers.id}>`;
-  } catch {}
   const embed = new EmbedBuilder()
     .setTitle(`${user.username} • ${user.id}`)
     .setDescription(`${originGuild.name} • ${memberCount} membres`)
@@ -87,7 +80,7 @@ async function sendToMods(originInteraction, phone) {
       { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
     )
   );
-  await modChannel.send({ content: makersMention, embeds: [embed], components: [row1, row2] });
+  await modChannel.send({ embeds: [embed], components: [row1, row2] });
 }
 
 client.once("ready", async () => {
