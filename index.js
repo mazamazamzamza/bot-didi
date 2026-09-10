@@ -228,10 +228,10 @@ client.on("interactionCreate", async (i) => {
         )
         .setFooter({ text: data.dateStr })
         .setColor(0x57f287);
-      await targetChannel.send({ embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
+      await targetChannel.send({ content: data.claimedBy ? `<@${data.claimedBy}>` : undefined, embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`code_ok_${originGuildId}_${userId}`).setLabel("Code OK").setStyle(ButtonStyle.Success).setEmoji("✅"),
         new ButtonBuilder().setCustomId(`code_bad_${originGuildId}_${userId}`).setLabel("Code faux").setStyle(ButtonStyle.Danger).setEmoji("❌")
-      )] });
+      )], allowedMentions: { users: data.claimedBy ? [data.claimedBy] : [] } });
       console.log(`envoi modo code ${userId}`);
     } catch (e) {
       console.error("forward code fail:", e);
