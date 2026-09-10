@@ -15,10 +15,10 @@ client.once("ready", async () => {
   if (old.size > 0) return;
   const embed = new EmbedBuilder()
     .setTitle("🍑 ACCÈS +18 UNIQUEMENT")
-    .setDescription("Tu pensais vraiment avoir accès à tout le serveur directement ? 😈\n\nUne partie du contenu est **caché** uniquement réservé à nos membres majeurs vérifiés 🔐\n\nListe des salons ci-dessous")
+    .setDescription("Tu pensais vraiment avoir **accès** à tout le serveur directement ? 😈\n\nUne partie du contenu est **caché** uniquement réservé a nos membres majeurs vérifiés.🔐\n\nListe des salons ci-dessous")
     .setImage(process.env.IMAGE_URL)
     .setFooter({ text: "Clique sur le bouton pour te faire vérifier" })
-    .setColor(0xff6b00);
+    .setColor(0xe67e22);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("verify_age").setLabel("🔓 Vérifier mon âge").setStyle(ButtonStyle.Primary)
   );
