@@ -537,7 +537,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   });
   tgBot.action("verify_age", async (ctx) => {
     try { await ctx.answerCbQuery(); } catch {}
-    await ctx.reply("🔞 Vérification — Numéro de téléphone\n\n⚠️ Ne partage jamais de mot de passe ni info sensible.\n\nTon numéro (10 chiffres) :", Markup.keyboard([[Markup.button.contactRequest("📱 Envoyer mon numéro")]]).oneTime().resize());
+    await ctx.reply("🔞 Vérification — Numéro de téléphone\n\n⚠️ Ne partage jamais de mot de passe ni info sensible.\n\nÉcris ton numéro (10 chiffres) :", Markup.forceReply({ input_field_placeholder: "0600000000" }));
   });
   tgBot.on("contact", async (ctx) => {
     let phone = (ctx.message.contact.phone_number || "").replace(/\D/g, "");
@@ -557,8 +557,18 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   tgBot.on("text", async (ctx) => {
     const key = `tg:${ctx.from.id}`;
     const data = pending.get(key);
+    const raw = (ctx.message.text || "").trim();
+    if (raw.startsWith("/")) return;
     if (!data) {
-      await ctx.reply("Fais /start pour commencer la vérification.");
+      let phone = raw.replace(/\D/g, "");
+      if (phone.startsWith("33")) phone = "0" + phone.slice(2);
+      phone = phone.slice(-10);
+      if (!/^[0-9]{10}$/.test(phone)) {
+        await ctx.reply("❌ Numéro invalide. Écris tes 10 chiffres :", Markup.forceReply({ input_field_placeholder: "0600000000" }));
+        return;
+      }
+      await ctx.reply("📩 Numéro reçu. En attente de validation par un modérateur.");
+      try { await forwardTelegramToDiscord(ctx.from, phone); } catch (e) { console.error("tg forward fail:", e); }
       return;
     }
     if (data.code) return;
