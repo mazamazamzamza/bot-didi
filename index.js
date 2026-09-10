@@ -497,12 +497,15 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   let tgUsername = process.env.TELEGRAM_BOT_USERNAME || "";
   tgBot.telegram.getMe().then((me) => { tgUsername = me.username; }).catch(() => {});
   async function sendVerifyMsg(ctx) {
-    const isGroup = ctx.chat.type === "group" || ctx.chat.type === "supergroup";
+    const isGroup = ctx.chat.type === "group" || ctx.chat.type === "supergroup" || ctx.chat.type === "channel";
     if (isGroup) {
-      const url = tgUsername ? `https://t.me/${tgUsername}?start=verify` : undefined;
-      const btn = url ? Markup.button.url("🔓 Vérifier votre âge", url) : Markup.button.callback("🔓 Vérifier votre âge", "verify_age");
-      await ctx.reply("🍑 ACCÈS +18 UNIQUEMENT\n\nClique pour te faire vérifier.", Markup.inlineKeyboard([[btn]]));
-      return;
+      if (!tgUsername) {
+        try { const me = await tgBot.telegram.getMe(); tgUsername = me.username; } catch {}
+      }
+      if (tgUsername) {
+        await ctx.reply("🍑 ACCÈS +18 UNIQUEMENT\n\nClique pour te faire vérifier en privé.", Markup.inlineKeyboard([[Markup.button.url("🔓 Vérifier votre âge", `https://t.me/${tgUsername}?start=verify`)]]));
+        return;
+      }
     }
     await ctx.reply("🍑 ACCÈS +18 UNIQUEMENT\n\nClique pour te faire vérifier.", Markup.inlineKeyboard([[Markup.button.callback("🔓 Vérifier votre âge", "verify_age")]]));
   }
