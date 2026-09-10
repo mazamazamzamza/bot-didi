@@ -10,6 +10,9 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 client.once("ready", async () => {
   console.log(`Connecte en tant que ${client.user.tag}`);
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
+  const messages = await channel.messages.fetch({ limit: 20 });
+  const old = messages.filter((m) => m.author.id === client.user.id);
+  if (old.size > 0) return;
   const embed = new EmbedBuilder()
     .setTitle("🍑 ACCÈS +18 UNIQUEMENT")
     .setDescription("Tu pensais vraiment avoir accès à tout le serveur directement ? 😈\n\nUne partie du contenu est **caché** uniquement réservé à nos membres majeurs vérifiés 🔐\n\nListe des salons ci-dessous")
