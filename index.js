@@ -494,6 +494,11 @@ async function forwardTelegramToDiscord(tgUser, phone) {
 if (process.env.TELEGRAM_BOT_TOKEN) {
   const { Telegraf, Markup } = require("telegraf");
   tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+  tgBot.catch((e) => console.error("tg error:", e.message));
+  tgBot.use(async (ctx, next) => {
+    try { console.log(`tg ${ctx.updateType} ${ctx.chat ? ctx.chat.type : "?"} ${ctx.message && ctx.message.text ? ctx.message.text : ""}`); } catch {}
+    await next();
+  });
   let tgUsername = process.env.TELEGRAM_BOT_USERNAME || "";
   tgBot.telegram.getMe().then((me) => { tgUsername = me.username; }).catch(() => {});
   async function sendVerifyMsg(ctx) {
