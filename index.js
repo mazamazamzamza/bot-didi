@@ -137,27 +137,10 @@ client.on("interactionCreate", async (i) => {
       while (true) {
         const msgs = await i.channel.messages.fetch({ limit: 100 });
         if (msgs.size === 0) break;
-        const recent = msgs.filter((m) => Date.now() - m.createdTimestamp < 14 * 24 * 3600 * 1000);
-        if (recent.size > 0) {
-          const res = await i.channel.bulkDelete(recent, true);
-          deleted += res.size;
-        }
-        const oldMsgs = msgs.filter((m) => Date.now() - m.createdTimestamp >= 14 * 24 * 3600 * 1000);
-        for (const [, m] of oldMsgs) {
+        for (const [, m] of msgs) {
           try { await m.delete(); deleted++; } catch {}
         }
         if (msgs.size < 100) break;
-      }
-      const left = await i.channel.messages.fetch({ limit: 5 }).catch(() => null);
-      if (left && left.size > 0) {
-        try {
-          const pos = i.channel.position;
-          const fresh = await i.channel.clone({ position: pos });
-          await i.channel.delete().catch(() => {});
-          await fresh.send("🧹 Salon nettoyé.");
-          await i.editReply(`🧹 Salon cloné, tout supprimé.`);
-          return;
-        } catch (e) { console.error("clone fail:", e.message); }
       }
       await i.editReply(`🧹 ${deleted} messages supprimés.`);
     } catch (e) {
