@@ -1,5 +1,9 @@
 require("dotenv").config();
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const express = require("express");
+const app = express();
+app.get("/", (req, res) => res.send("Bot online"));
+app.listen(process.env.PORT || 3000);
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
