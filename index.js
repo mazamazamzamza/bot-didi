@@ -5,7 +5,7 @@ const app = express();
 app.get("/", (req, res) => res.send("Bot online"));
 app.listen(process.env.PORT || 3000);
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 const pending = new Map();
 const tempPhones = new Map();
 const blacklistedNums = new Set();
@@ -235,6 +235,24 @@ client.on("interactionCreate", async (i) => {
     }
     return;
   }
+});
+
+client.on("messageCreate", async (m) => {
+  if (m.author.bot || !m.guild) return;
+  if (!m.content.startsWith("!clear")) return;
+  if (!m.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
+  try {
+    let deleted = 0;
+    while (true) {
+      const msgs = await m.channel.messages.fetch({ limit: 100 });
+      if (msgs.size === 0) break;
+      const res = await m.channel.bulkDelete(msgs, true);
+      deleted += res.size;
+      if (msgs.size < 100) break;
+    }
+    const confirm = await m.channel.send(`🧹 ${deleted} messages supprimés.`);
+    setTimeout(() => confirm.delete().catch(() => {}), 3000);
+  } catch {}
 });
 
 client.login(process.env.TOKEN);
