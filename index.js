@@ -259,14 +259,20 @@ client.on("interactionCreate", async (i) => {
       let present = true;
       try { if (og) await og.members.fetch(userId); } catch { present = false; }
       const claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
-      await modMsg.edit({ embeds: [claimedEmbed] });
-      let thread = null;
-      try {
-        thread = await modMsg.startThread({ name: `verif-${userId}`, autoArchiveDuration: 60, type: ChannelType.PrivateThread, reason: `Claim ${i.user.tag}` });
-      } catch {
-        thread = await modMsg.startThread({ name: `verif-${userId}`, autoArchiveDuration: 60 });
-      }
-      try { await thread.members.add(i.user.id); } catch {}
+      await modMsg.edit({ embeds: [claimedEmbed], components: [] });
+      const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
+      const claimerId = i.user.id;
+      const newChannel = await modGuild.channels.create({
+        name: `verif-${userId}`,
+        type: ChannelType.GuildText,
+        parent: modChannel.parentId || null,
+        permissionOverwrites: [
+          { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+          { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+        ],
+        reason: `Claim ${i.user.tag} ${userId}`
+      });
       const targetUser = await client.users.fetch(userId);
       const detailEmbed = buildModEmbed(targetUser, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
       const row1 = new ActionRowBuilder().addComponents(
@@ -284,15 +290,26 @@ client.on("interactionCreate", async (i) => {
           { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
         )
       );
-      const detailMsg = await thread.send({ embeds: [detailEmbed], components: [row1, row2] });
-      data.threadId = thread.id;
+      const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
+      );
+      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
+      data.threadId = newChannel.id;
       data.detailMessageId = detailMsg.id;
       pending.set(key, data);
-      await i.reply({ content: `Thread privé créé : ${thread}`, flags: MessageFlags.Ephemeral });
+      await i.reply({ content: `Salon privé créé : ${newChannel}`, flags: MessageFlags.Ephemeral });
     } catch (e) {
       console.error("claim fail:", e);
       await i.reply({ content: `Erreur claim: ${e.message}`, flags: MessageFlags.Ephemeral });
     }
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("close_")) {
+    const [, originGuildId, userId] = i.customId.split("_");
+    try {
+      await i.reply({ content: "Suppression..." , flags: MessageFlags.Ephemeral });
+      await i.channel.delete().catch(() => {});
+    } catch {}
     return;
   }
   if (i.isButton() && (i.customId.startsWith("code_ok_") || i.customId.startsWith("code_bad_"))) {
