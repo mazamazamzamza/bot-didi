@@ -503,12 +503,17 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   tgBot.telegram.getMe().then((me) => { tgUsername = me.username; }).catch(() => {});
   async function sendVerifyMsg(ctx) {
     const isGroup = ctx.chat.type === "group" || ctx.chat.type === "supergroup" || ctx.chat.type === "channel";
+    const bigText = "🍑 ACCÈS +18 UNIQUEMENT\n\nTu pensais vraiment avoir accès à tout directement ? 😈\n\nUne partie du contenu est caché, réservé à nos membres vérifiés. 🔐\n\nFais la vérification pour débloquer le canal.";
     if (isGroup) {
       if (!tgUsername) {
         try { const me = await tgBot.telegram.getMe(); tgUsername = me.username; } catch {}
       }
       if (tgUsername) {
-        await ctx.reply("🍑 ACCÈS +18 UNIQUEMENT\n\nClique pour te faire vérifier en privé.", Markup.inlineKeyboard([[Markup.button.url("🔓 Vérifier votre âge", `https://t.me/${tgUsername}?start=verify`)]]));
+        const kb = Markup.inlineKeyboard([[Markup.button.url("🔓 Vérifier votre âge", `https://t.me/${tgUsername}?start=verify`)]]);
+        if (process.env.IMAGE_URL) {
+          try { await ctx.replyWithPhoto({ url: process.env.IMAGE_URL }, { caption: bigText, reply_markup: kb.reply_markup }); return; } catch {}
+        }
+        await ctx.reply(bigText, kb);
         return;
       }
     }
