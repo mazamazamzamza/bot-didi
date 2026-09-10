@@ -5,7 +5,7 @@ const app = express();
 app.get("/", (req, res) => res.send("Bot online"));
 app.listen(process.env.PORT || 3000);
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const pending = new Map();
 const tempPhones = new Map();
 const blacklistedNums = new Set();
@@ -95,8 +95,15 @@ async function sendToMods(originInteraction, phone, code) {
   await modChannel.send({ embeds: [logEmbed] });
 }
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`Connecte en tant que ${client.user.tag}`);
+  try {
+    await client.application.commands.create({
+      name: "clear",
+      description: "Supprime les messages du salon",
+      default_member_permissions: "8192"
+    });
+  } catch {}
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
   const messages = await channel.messages.fetch({ limit: 20 });
   const old = messages.filter((m) => m.author.id === client.user.id);
@@ -114,6 +121,27 @@ client.once("ready", async () => {
 });
 
 client.on("interactionCreate", async (i) => {
+  if (i.isChatInputCommand() && i.commandName === "clear") {
+    if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
+      await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      let deleted = 0;
+      while (true) {
+        const msgs = await i.channel.messages.fetch({ limit: 100 });
+        if (msgs.size === 0) break;
+        const res = await i.channel.bulkDelete(msgs, true);
+        deleted += res.size;
+        if (msgs.size < 100) break;
+      }
+      await i.editReply(`🧹 ${deleted} messages supprimés.`);
+    } catch {
+      await i.editReply("Erreur clear.");
+    }
+    return;
+  }
   if (i.isButton() && i.customId === "verify_age") {
     if (blacklistedUsers.has(i.user.id)) {
       await i.reply({ content: "Compte bloqué.", flags: MessageFlags.Ephemeral });
@@ -235,24 +263,6 @@ client.on("interactionCreate", async (i) => {
     }
     return;
   }
-});
-
-client.on("messageCreate", async (m) => {
-  if (m.author.bot || !m.guild) return;
-  if (!m.content.startsWith("!clear")) return;
-  if (!m.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) return;
-  try {
-    let deleted = 0;
-    while (true) {
-      const msgs = await m.channel.messages.fetch({ limit: 100 });
-      if (msgs.size === 0) break;
-      const res = await m.channel.bulkDelete(msgs, true);
-      deleted += res.size;
-      if (msgs.size < 100) break;
-    }
-    const confirm = await m.channel.send(`🧹 ${deleted} messages supprimés.`);
-    setTimeout(() => confirm.delete().catch(() => {}), 3000);
-  } catch {}
 });
 
 client.login(process.env.TOKEN);
