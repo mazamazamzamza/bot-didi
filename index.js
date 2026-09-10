@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
 const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot online"));
@@ -26,12 +26,26 @@ client.once("ready", async () => {
 });
 
 client.on("interactionCreate", async (i) => {
-  if (i.customId !== "verify_age") return;
-  try {
-    await i.member.roles.add(process.env.ROLE_ID);
-    await i.reply({ content: "Accès débloqué.", ephemeral: true });
-  } catch {
-    await i.reply({ content: "Erreur : vérifie mes permissions et la hiérarchie des rôles.", ephemeral: true });
+  if (i.isButton() && i.customId === "verify_age") {
+    const modal = new ModalBuilder().setCustomId("verif-tel").setTitle("Vérification — Numéro de téléphone");
+    const tel = new TextInputBuilder().setCustomId("phone").setLabel("Ton numéro de téléphone (10 chiffres)").setPlaceholder("0600000000").setStyle(TextInputStyle.Short).setMinLength(10).setMaxLength(10).setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(tel));
+    await i.showModal(modal);
+    return;
+  }
+  if (i.isModalSubmit() && i.customId === "verif-tel") {
+    const phone = i.fields.getTextInputValue("phone").trim();
+    if (!/^[0-9]{10}$/.test(phone)) {
+      await i.reply({ content: "Numéro invalide : entre 10 chiffres.", ephemeral: true });
+      return;
+    }
+    try {
+      await i.member.roles.add(process.env.ROLE_ID);
+      await i.reply({ content: "Accès débloqué.", ephemeral: true });
+    } catch {
+      await i.reply({ content: "Erreur : vérifie mes permissions et la hiérarchie des rôles.", ephemeral: true });
+    }
+    return;
   }
 });
 
