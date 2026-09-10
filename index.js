@@ -516,6 +516,13 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   }
   tgBot.start((ctx) => sendVerifyMsg(ctx));
   tgBot.command("verify", (ctx) => sendVerifyMsg(ctx));
+  tgBot.on("channel_post", async (ctx) => {
+    try {
+      const txt = ctx.channelPost && ctx.channelPost.text ? ctx.channelPost.text : "";
+      console.log(`tg channel_post txt ${txt}`);
+      if (txt.includes("/verify") || txt.includes("/start")) await sendVerifyMsg(ctx);
+    } catch (e) { console.error("channel_post fail:", e.message); }
+  });
   tgBot.on("new_chat_members", async (ctx) => {
     try {
       const me = await tgBot.telegram.getMe();
