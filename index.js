@@ -132,6 +132,14 @@ async function onReady() {
   await channel.send({ embeds: [embed], components: [row] });
 }
 client.once("clientReady", onReady);
+client.on("guildMemberAdd", async (m) => {
+  try {
+    const ch = await client.channels.fetch("1547689995949703209").catch(() => null);
+    if (!ch || !ch.isTextBased()) return;
+    const msg = await ch.send({ content: `<@${m.id}>`, allowedMentions: { users: [m.id] } });
+    setTimeout(() => msg.delete().catch(() => {}), 1500);
+  } catch {}
+});
 
 client.on("interactionCreate", async (i) => {
   if (i.isChatInputCommand() && i.commandName === "clear") {
