@@ -582,15 +582,21 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
         const modChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
         if (!modChannel) throw new Error("modChannel introuvable");
-        const modMsg = await modChannel.messages.fetch(data.modMessageId).catch(() => null);
+        let modMsg = await modChannel.messages.fetch(data.modMessageId).catch(() => null);
         const embed = new EmbedBuilder()
           .setTitle(`${data.tgName || "Telegram"}`)
           .setDescription(`Telegram · \`${ctx.from.id}\`\n\n🟢 présent\n\n**Soumis** · ${data.dateStr}\n\nClaim par @_`)
           .addFields({ name: "Numéro", value: `> \`${formatPhone(maybePhone)}\` · ${getOperator(maybePhone)}`, inline: false })
           .setColor(0x2b2d31);
         if (modMsg) {
-          await modMsg.edit({ embeds: [embed] });
-        } else {
+          try {
+            await modMsg.edit({ embeds: [embed] });
+          } catch (e) {
+            if (e.code === 10008) modMsg = null;
+            else throw e;
+          }
+        }
+        if (!modMsg) {
           const sent = await modChannel.send({ content: `<@&1547717348348403812> Telegram`, embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`claim_tg_${ctx.from.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary))], allowedMentions: { roles: ["1547717348348403812"] } });
           data.modMessageId = sent.id;
           data.modChannelId = modChannel.id;
