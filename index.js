@@ -86,7 +86,7 @@ async function sendToMods(originInteraction, phone) {
   const originGuild = originInteraction.guild;
   const key = `${originGuild.id}:${user.id}`;
   const now = new Date();
-  const dateStr = now.toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   let present = true;
   try {
     await originGuild.members.fetch(user.id);
@@ -484,7 +484,7 @@ client.on("interactionCreate", async (i) => {
 async function forwardTelegramToDiscord(tgUser, phone) {
   const key = `tg:${tgUser.id}`;
   const now = new Date();
-  const dateStr = now.toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const displayName = tgUser.username ? `@${tgUser.username}` : `${tgUser.first_name || "Telegram"}`;
   const embed = new EmbedBuilder()
     .setTitle(`${displayName}`)
