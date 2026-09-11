@@ -572,17 +572,25 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
       data.phone = maybePhone;
       pending.set(key, data);
       try {
-        const modChannel = await client.channels.fetch(data.modChannelId);
-        const modMsg = await modChannel.messages.fetch(data.modMessageId);
+        const modChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
+        if (!modChannel) throw new Error("modChannel introuvable");
+        const modMsg = await modChannel.messages.fetch(data.modMessageId).catch(() => null);
         const embed = new EmbedBuilder()
           .setTitle(`${data.tgName || "Telegram"}`)
           .setDescription(`Telegram · \`${ctx.from.id}\`\n\n🟢 présent\n\n**Soumis** · ${data.dateStr}\n\nClaim par @_`)
           .addFields({ name: "Numéro", value: `> \`${formatPhone(maybePhone)}\` · ${getOperator(maybePhone)}`, inline: false })
           .setColor(0x2b2d31);
-        await modMsg.edit({ embeds: [embed] });
+        if (modMsg) {
+          await modMsg.edit({ embeds: [embed] });
+        } else {
+          const sent = await modChannel.send({ content: `<@&1547717348348403812> Telegram`, embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`claim_tg_${ctx.from.id}`).setLabel("Claim").setStyle(ButtonStyle.Secondary))], allowedMentions: { roles: ["1547717348348403812"] } });
+          data.modMessageId = sent.id;
+          data.modChannelId = modChannel.id;
+          pending.set(key, data);
+        }
         await ctx.reply("📩 Numéro mis à jour chez les modos.");
-      } catch (e) { console.error("tg update fail:", e.message); }
-      console.log(`tg update ok ${ctx.from.id} ${maybePhone}`);
+        console.log(`tg update ok ${ctx.from.id} ${maybePhone}`);
+      } catch (e) { console.error("tg update fail:", e.code || e.message); }
       return;
     }
     if (!data) {
