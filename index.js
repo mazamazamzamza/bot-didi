@@ -241,7 +241,9 @@ async function onReady() {
       { name: "clear", description: "Supprime les messages du salon", default_member_permissions: "8192" },
       { name: "stats", description: "Affiche les stats validé / échoué" },
       { name: "classement", description: "Classement des staffs par vérifications" },
-      { name: "historique", description: "Historique d'un staff", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] }
+      { name: "historique", description: "Historique d'un staff", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] },
+      { name: "tg_msg", description: "Envoie un MP Telegram à un membre (depuis Discord)", default_member_permissions: "8192", options: [{ name: "id", description: "ID Telegram (ex: 123456789)", type: 3, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", default_member_permissions: "8192", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] }
     ];
     // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
     try { await client.application.commands.set(commands); } catch (e) { console.error("global set fail:", e.message); }
@@ -392,6 +394,41 @@ client.on("interactionCreate", async (i) => {
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
     await i.reply({ embeds: [embed] });
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "tg_msg") {
+    if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
+      await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const tgId = i.options.getString("id");
+    const msg = i.options.getString("message");
+    if (!tgBot) {
+      await i.reply({ content: "Bot Telegram non connecté (TELEGRAM_BOT_TOKEN manquant).", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    try {
+      await tgBot.telegram.sendMessage(tgId, msg);
+      await i.reply({ content: `✅ Message Telegram envoyé à \`${tgId}\` :\n> ${msg}`, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      await i.reply({ content: `❌ Erreur Telegram: ${e.message}`, flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "dm") {
+    if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
+      await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const target = i.options.getUser("membre");
+    const msg = i.options.getString("message");
+    try {
+      const u = await client.users.fetch(target.id);
+      await u.send(msg);
+      await i.reply({ content: `✅ MP Discord envoyé à ${target.tag} (\`${target.id}\`)`, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      await i.reply({ content: `❌ Erreur DM: ${e.message} (MP fermés ?)`, flags: MessageFlags.Ephemeral });
+    }
     return;
   }
   if (i.isButton() && i.customId.startsWith("classement_page_")) {
