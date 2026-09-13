@@ -11,6 +11,47 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
+const PENDING_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
+setInterval(async () => {
+  if (!client.isReady()) return;
+  const now = Date.now();
+  for (const [key, data] of [...pending.entries()]) {
+    if (data.claimedBy) continue; // déjà claim
+    if (key.startsWith("mass_")) continue; // mass dm tmp
+    if (!data.date) continue;
+    if (now - new Date(data.date).getTime() < PENDING_TIMEOUT_MS) continue;
+    // timeout 15min sans claim
+    try {
+      const isTg = data.originGuildId === "tg";
+      if (isTg) {
+        if (tgBot) {
+          try { await tgBot.telegram.sendMessage(data.userId, "⏳ Aucun modérateur n'a pris ta demande. Réessaie plus tard."); } catch {}
+        }
+      } else {
+        try {
+          const u = await client.users.fetch(data.userId);
+          await u.send("⏳ Aucun modérateur n'a pris ta demande. Réessaie plus tard.");
+        } catch {}
+      }
+      // edit message modo si possible
+      try {
+        const ch = await client.channels.fetch(data.modChannelId).catch(()=>null);
+        if (ch) {
+          const msg = await ch.messages.fetch(data.modMessageId).catch(()=>null);
+          if (msg) {
+            const timeoutEmbed = new EmbedBuilder()
+              .setTitle(msg.embeds[0]?.title || "Demande expirée")
+              .setDescription((msg.embeds[0]?.description || "") + "\n\n⏳ **Non claim après 15 min — utilisateur notifié**")
+              .setColor(0x808080)
+              .setTimestamp();
+            await msg.edit({ embeds: [timeoutEmbed], components: [] }).catch(()=>{});
+          }
+        }
+      } catch {}
+    } catch {}
+    pending.delete(key);
+  }
+}, 60 * 1000); // check chaque minute
 const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
 const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "1548532409153363968";
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
