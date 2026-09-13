@@ -15,7 +15,7 @@ const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
 const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "1548532409153363968";
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
 const STATS_PATH = path.join(__dirname, "stats.json");
-let stats = { validated: 0, failed: 0, lastUpdate: null, lastUpdateBy: null, lastStatus: null };
+let stats = { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated" };
 try {
   if (fs.existsSync(STATS_PATH)) {
     const raw = JSON.parse(fs.readFileSync(STATS_PATH, "utf8"));
