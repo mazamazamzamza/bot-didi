@@ -329,6 +329,7 @@ async function onReady() {
       { name: "mass_dm_discord", description: "Envoie un MP à tout le monde sur Discord (token demandé)", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
       { name: "mass_dm_telegram", description: "Envoie un MP à tout le monde sur Telegram", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
       { name: "listetlg", description: "Liste tous les users Telegram stockés (pseudo, ID, téléphone)" },
+      { name: "test_timeout", description: "Test le timeout 15min (crée un faux pending)" },
       { name: "help", description: "Affiche l'aide des commandes" }
     ];
     // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
@@ -646,11 +647,55 @@ client.on("interactionCreate", async (i) => {
       .addFields(
         { name: "💬 Message — envoie des MPs", value: "`/tg_msg` — Envoie un MP Telegram à un ID (`id` + `message`) — *rôle <@&1547699868317782096> + <#1548542207605342230>*\n`/dm` — Envoie un MP Discord à un membre (`membre` + `message`) — *même restriction*\n`/mass_dm_discord` — Mass DM Discord (demande le token systématiquement) — *confirmation + 1.1s*\n`/mass_dm_telegram` — Mass DM Telegram à tous les users stockés — *confirmation*", inline: false },
         { name: "🛠️ Utile — infos", value: "`/stats` — Stats globales validés/échoués + dernière action (public)\n`/classement` — Tableau de tous les membres triés (avec pagination) — *public*\n`/help` — Affiche ce message", inline: false },
-        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/listetlg` — Liste tous les users Telegram stockés (pseudo, ID, téléphone)\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
+        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/listetlg` — Liste tous les users Telegram stockés\n`/test_timeout` — Test le timeout 15min (faux pending)\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
       )
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
     await i.reply({ embeds: [embed] });
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "test_timeout") {
+    if (!i.member.roles.cache.has("1547699868317782096")) {
+      await i.reply({ content: "❌ Rôle requis : <@&1547699868317782096>", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await i.reply({ content: "⏳ Création d'un faux pending + simulation timeout 15min...", flags: MessageFlags.Ephemeral });
+    try {
+      const fakeUser = i.user;
+      const fakePhone = "0600000000";
+      const originGuildId = MOD_GUILD_ID;
+      const key = `${originGuildId}:${fakeUser.id}_test_${Date.now()}`;
+      const now = new Date(Date.now() - 16*60*1000); // 16 min ago pour trigger timeout
+      const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      const embed = buildClaimEmbed(fakeUser, { name: "TEST", memberCount: 0 }, true, 0, dateStr, null);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`claim_${originGuildId}_${fakeUser.id}`).setLabel("Claim TEST").setStyle(ButtonStyle.Secondary)
+      );
+      const modChannel = await getModChannel();
+      const sent = await modChannel.send({ content: `🧪 TEST TIMEOUT <@&1547717348348403812>`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
+      const testKey = `${originGuildId}:${fakeUser.id}`;
+      pending.set(testKey, { phone: fakePhone, code: null, originGuildId, userId: fakeUser.id, date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null });
+      // force timeout immediat
+      try {
+        const u = await client.users.fetch(fakeUser.id);
+        await u.send("⏳ [TEST] Aucun modérateur n'a pris ta demande pour le moment. Réessaie plus tard.");
+      } catch {}
+      const baseDesc = embed.description || "";
+      const timeoutEmbed = new EmbedBuilder()
+        .setTitle(fakeUser.username + " • " + fakeUser.id + " [TEST]")
+        .setDescription(baseDesc + "\n\n⏳ **Non claim après 15 min — Aucun modérateur n'a pris la demande**\n*Utilisateur notifié : réessaie plus tard*")
+        .setColor(0x808080)
+        .setTimestamp();
+      const pretRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`pret_${originGuildId}_${fakeUser.id}`).setLabel("✅ Prêt — Notifier l'utilisateur [TEST]").setStyle(ButtonStyle.Success).setEmoji("👋")
+      );
+      await sent.edit({ embeds: [timeoutEmbed], components: [pretRow] });
+      const d = pending.get(testKey);
+      if (d) { d.timedOut = true; pending.set(testKey, d); }
+      await i.followUp({ content: `✅ Test créé dans <#${modChannel.id}> — vérifie le log et clique **Prêt** pour tester le DM.`, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      await i.followUp({ content: `❌ Erreur test: ${e.message}`, flags: MessageFlags.Ephemeral });
+    }
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "listetlg") {
