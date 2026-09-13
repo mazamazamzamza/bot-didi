@@ -3,5 +3,14 @@
   "failed": 5,
   "lastUpdate": "2026-09-13T03:06:15Z",
   "lastUpdateBy": "1536783268219977738",
-  "lastStatus": "validated"
+  "lastStatus": "validated",
+  "staff": {
+    "1536783268219977738": {
+      "validated": 1,
+      "failed": 5,
+      "lastUpdate": "2026-09-13T03:06:15Z",
+      "lastStatus": "validated",
+      "tag": "Staff"
+    }
+  }
 }

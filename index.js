@@ -16,12 +16,13 @@ const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "15485324091533
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
 const STATS_PATH = path.join(__dirname, "stats.json");
 const DB_STATS_CHANNEL_ID = process.env.DB_STATS_CHANNEL_ID || "1548535878509400184";
-let stats = { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated" };
+let stats = { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated", staff: { "1536783268219977738": { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastStatus: "validated", tag: "Staff" } } };
 let dbStatsMessageId = null;
 try {
   if (fs.existsSync(STATS_PATH)) {
     const raw = JSON.parse(fs.readFileSync(STATS_PATH, "utf8"));
     stats = { ...stats, ...raw };
+    if (!stats.staff) stats.staff = {};
   }
 } catch (e) { console.error("stats load fail:", e.message); }
 function saveStats() {
@@ -41,6 +42,7 @@ async function loadDbStats() {
       const jsonStr = botMsg.content.replace(/.*DB_STATS\s*/s, "").replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(jsonStr);
       stats = { ...stats, ...parsed };
+      if (!stats.staff) stats.staff = {};
       try { fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2)); } catch {}
       console.log("stats loaded from db-stats:", stats);
       return;
@@ -237,7 +239,9 @@ async function onReady() {
   try {
     const commands = [
       { name: "clear", description: "Supprime les messages du salon", default_member_permissions: "8192" },
-      { name: "stats", description: "Affiche les stats validé / échoué", default_member_permissions: "0" }
+      { name: "stats", description: "Affiche les stats validé / échoué", default_member_permissions: "0" },
+      { name: "classement", description: "Classement des staffs par vérifications", default_member_permissions: "0" },
+      { name: "historique", description: "Historique d'un staff", default_member_permissions: "0", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] }
     ];
     for (const cmdData of commands) {
       await client.application.commands.create(cmdData);
@@ -247,7 +251,7 @@ async function onReady() {
       try {
         const guildCmds = await g.commands.fetch();
         for (const [, c] of guildCmds) {
-          if (c.name === "clear" || c.name === "stats") await c.delete().catch(() => {});
+          if (["clear","stats","classement","historique"].includes(c.name)) await c.delete().catch(() => {});
         }
       } catch {}
     }
@@ -300,6 +304,75 @@ client.on("interactionCreate", async (i) => {
         { name: "📌 Dernier statut", value: `${lastStatusEmoji}`, inline: true }
       )
       .setFooter({ text: `Demandé par ${i.user.tag}` , iconURL: i.user.displayAvatarURL() })
+      .setTimestamp();
+    await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "classement") {
+    if (!stats.staff) stats.staff = {};
+    const entries = Object.entries(stats.staff);
+    if (entries.length === 0) {
+      await i.reply({ content: "Aucune donnée pour le classement.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    // tri: validés desc puis total desc
+    entries.sort((a,b) => {
+      const sa = a[1], sb = b[1];
+      if (sb.validated !== sa.validated) return sb.validated - sa.validated;
+      return (sb.validated+sb.failed) - (sa.validated+sa.failed);
+    });
+    const top = entries.slice(0, 10);
+    const lines = top.map(([id, s], idx) => {
+      const total = s.validated + s.failed;
+      const rate = total ? Math.round((s.validated/total)*100) : 0;
+      const medal = idx===0 ? "🥇" : idx===1 ? "🥈" : idx===2 ? "🥉" : `**${idx+1}.**`;
+      const lastStr = s.lastUpdate ? new Date(s.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+      return `${medal} <@${id}> — ✅ ${s.validated} | ❌ ${s.failed} | 📦 ${total} | ${rate}% | <t:${Math.floor(new Date(s.lastUpdate||Date.now())/1000)}:R>`;
+    });
+    const globalTotal = stats.validated + stats.failed;
+    const embed = new EmbedBuilder()
+      .setTitle("🏆 Classement staff — vérifications")
+      .setDescription(lines.join("\n"))
+      .setColor(0xf1c40f)
+      .addFields(
+        { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal}`, inline: false },
+        { name: "🕒 Dernière action", value: stats.lastUpdate ? `<t:${Math.floor(new Date(stats.lastUpdate)/1000)}:R> par <@${stats.lastUpdateBy}>` : "—", inline: false }
+      )
+      .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
+      .setTimestamp();
+    await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "historique") {
+    const target = i.options.getUser("membre") || i.user;
+    if (!stats.staff) stats.staff = {};
+    const s = stats.staff[target.id];
+    if (!s) {
+      await i.reply({ content: `Aucun historique pour ${target.tag} (\`${target.id}\`).`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const total = s.validated + s.failed;
+    const rate = total ? Math.round((s.validated/total)*100) : 0;
+    const lastStr = s.lastUpdate ? new Date(s.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+    const lastEmoji = s.lastStatus === "validated" ? "✅ Validé" : s.lastStatus === "failed" ? "❌ Échoué" : "—";
+    // rang
+    const entries = Object.entries(stats.staff).sort((a,b) => b[1].validated - a[1].validated);
+    const rank = entries.findIndex(([id]) => id === target.id) + 1;
+    const embed = new EmbedBuilder()
+      .setTitle(`📜 Historique — ${target.tag}`)
+      .setThumbnail(target.displayAvatarURL())
+      .setColor(0x5865f2)
+      .addFields(
+        { name: "✅ Validés", value: `**${s.validated}**`, inline: true },
+        { name: "❌ Échoués", value: `**${s.failed}**`, inline: true },
+        { name: "📦 Total", value: `**${total}**`, inline: true },
+        { name: "📈 Taux de réussite", value: `**${rate}%**`, inline: true },
+        { name: "🏅 Rang", value: rank ? `#${rank} / ${entries.length}` : "—", inline: true },
+        { name: "🕒 Dernière action", value: `${lastStr}`, inline: false },
+        { name: "📌 Dernier statut", value: `${lastEmoji}`, inline: true },
+        { name: "👤 ID", value: `\`${target.id}\``, inline: true }
+      )
+      .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
     await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     return;
@@ -546,6 +619,13 @@ client.on("interactionCreate", async (i) => {
     stats.lastUpdate = new Date().toISOString();
     stats.lastUpdateBy = claimerId;
     stats.lastStatus = isValidated ? "validated" : "failed";
+    if (!stats.staff) stats.staff = {};
+    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+    const s = stats.staff[claimerId];
+    if (isValidated) s.validated++; else s.failed++;
+    s.lastUpdate = stats.lastUpdate;
+    s.lastStatus = stats.lastStatus;
+    s.tag = i.user.tag;
     saveDbStats().catch(() => saveStats());
     if (data) pending.delete(key);
     try {
