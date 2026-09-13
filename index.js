@@ -401,6 +401,10 @@ client.on("interactionCreate", async (i) => {
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "historique") {
+    if (!i.member.roles.cache.has("1547699868317782096")) {
+      await i.reply({ content: "❌ Rôle requis : <@&1547699868317782096>", flags: MessageFlags.Ephemeral });
+      return;
+    }
     const target = i.options.getUser("membre") || i.user;
     if (!stats.staff) stats.staff = {};
     const s = stats.staff[target.id] || { validated: 0, failed: 0, lastUpdate: null, lastStatus: null };
@@ -569,7 +573,8 @@ client.on("interactionCreate", async (i) => {
       .setDescription("Toutes les commandes disponibles :")
       .addFields(
         { name: "💬 Message — envoie des MPs", value: "`/tg_msg` — Envoie un MP Telegram à un ID (`id` + `message`) — *rôle <@&1547699868317782096> + <#1548542207605342230>*\n`/dm` — Envoie un MP Discord à un membre (`membre` + `message`) — *même restriction*\n`/mass_dm` — Envoie un MP à **tout le monde** (`plateforme: discord/telegram` + `message`) — *confirmation + rate limit 1.1s*", inline: false },
-        { name: "🛠️ Utile — infos & modération", value: "`/stats` — Stats globales validés/échoués + dernière action (public)\n`/classement` — Tableau de tous les membres triés (avec pagination)\n`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun)\n`/clear` — Supprime les messages du salon (Gérer les messages)\n`/help` — Affiche ce message", inline: false }
+        { name: "🛠️ Utile — infos", value: "`/stats` — Stats globales validés/échoués + dernière action (public)\n`/classement` — Tableau de tous les membres triés (avec pagination) — *public*\n`/help` — Affiche ce message", inline: false },
+        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
       )
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
