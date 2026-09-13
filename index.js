@@ -833,7 +833,7 @@ client.on("interactionCreate", async (i) => {
     stats.lastUpdate = new Date().toISOString();
     stats.lastUpdateBy = i.user.id;
     await saveDbStats();
-    await i.reply({ content: `✅ Stats reset pour ${target.tag} : **${oldV} validés / ${oldF} échoués → 0/0**\nGlobal recalculé : **${totV} validés / ${totF} échoués**`, flags: MessageFlags.Ephemeral });
+    await i.reply({ content: `✅ Stats reset pour ${target.tag} par <@${i.user.id}> : **${oldV} validés / ${oldF} échoués → 0/0**\nGlobal recalculé : **${totV} validés / ${totF} échoués**` });
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "listetlg") {
