@@ -350,9 +350,11 @@ client.on("interactionCreate", async (i) => {
       const r = (e.rate + "%").padStart(4, " ");
       return `${rank} | ${name} | ${v} | ${f} | ${t} | ${r}`;
     });
-    // pagination si >40 lignes (limite embed 4096)
-    const maxRowsPerPage = 35;
-    let table = "```\n" + header + "\n" + sep + "\n" + rows.slice(0, maxRowsPerPage).join("\n") + "\n```";
+    const maxRowsPerPage = 25;
+    const totalPages = Math.max(1, Math.ceil(rows.length / maxRowsPerPage));
+    const page = 0;
+    const slice = rows.slice(page * maxRowsPerPage, (page+1)*maxRowsPerPage);
+    let table = "```\n" + header + "\n" + sep + "\n" + slice.join("\n") + "\n```";
     const embed = new EmbedBuilder()
       .setTitle("🏆 Classement — tous les membres")
       .setDescription(table)
@@ -361,12 +363,13 @@ client.on("interactionCreate", async (i) => {
         { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal} | 👥 ${members.length} membres`, inline: false },
         { name: "🕒 Dernière action", value: stats.lastUpdate ? `<t:${Math.floor(new Date(stats.lastUpdate)/1000)}:R> par <@${stats.lastUpdateBy}>` : "—", inline: false }
       )
-      .setFooter({ text: `Demandé par ${i.user.tag} • ${list.length} membres • page 1/${Math.ceil(rows.length/maxRowsPerPage)}`, iconURL: i.user.displayAvatarURL() })
+      .setFooter({ text: `Demandé par ${i.user.tag} • ${list.length} membres • page ${page+1}/${totalPages}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
-    if (rows.length > maxRowsPerPage) {
-      embed.setDescription(table + `\n*+ ${rows.length - maxRowsPerPage} autres membres... (tableau tronqué à ${maxRowsPerPage})*`);
-    }
-    await i.editReply({ embeds: [embed] });
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`classement_page_${page-1}`).setLabel("◀ Précédent").setStyle(ButtonStyle.Secondary).setDisabled(page===0),
+      new ButtonBuilder().setCustomId(`classement_page_${page+1}`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary).setDisabled(page===totalPages-1)
+    );
+    await i.editReply({ embeds: [embed], components: totalPages>1 ? [row] : [] });
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "historique") {
@@ -401,6 +404,54 @@ client.on("interactionCreate", async (i) => {
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
     await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("classement_page_")) {
+    const page = parseInt(i.customId.replace("classement_page_", ""), 10);
+    if (!stats.staff) stats.staff = {};
+    let guild = null;
+    try { guild = await client.guilds.fetch(MOD_GUILD_ID); } catch { guild = i.guild; }
+    try { await guild.members.fetch(); } catch {}
+    const members = [...guild.members.cache.values()].filter(m => !m.user.bot);
+    const list = members.map(m => {
+      const s = stats.staff[m.id] || { validated: 0, failed: 0, lastUpdate: null, tag: m.user.tag };
+      const total = s.validated + s.failed;
+      const rate = total ? Math.round((s.validated/total)*100) : 0;
+      return { id: m.id, tag: m.user.tag, validated: s.validated, failed: s.failed, total, rate };
+    });
+    list.sort((a,b) => b.validated - a.validated || b.total - a.total || a.tag.localeCompare(b.tag));
+    const maxRowsPerPage = 25;
+    const totalPages = Math.max(1, Math.ceil(list.length / maxRowsPerPage));
+    const p = Math.max(0, Math.min(page, totalPages-1));
+    const header = " #  | Membre              | Valid | Échou | Total | Taux ";
+    const sep = "----|---------------------|-------|-------|-------|------";
+    const rows = list.map((e, idx) => {
+      const rank = String(idx+1).padStart(2, " ");
+      const name = e.tag.slice(0, 19).padEnd(19, " ");
+      const v = String(e.validated).padStart(5, " ");
+      const f = String(e.failed).padStart(5, " ");
+      const t = String(e.total).padStart(5, " ");
+      const r = (e.rate + "%").padStart(4, " ");
+      return `${rank} | ${name} | ${v} | ${f} | ${t} | ${r}`;
+    });
+    const slice = rows.slice(p * maxRowsPerPage, (p+1)*maxRowsPerPage);
+    const table = "```\n" + header + "\n" + sep + "\n" + slice.join("\n") + "\n```";
+    const globalTotal = stats.validated + stats.failed;
+    const embed = new EmbedBuilder()
+      .setTitle("🏆 Classement — tous les membres")
+      .setDescription(table)
+      .setColor(0xf1c40f)
+      .addFields(
+        { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal} | 👥 ${members.length} membres`, inline: false },
+        { name: "🕒 Dernière action", value: stats.lastUpdate ? `<t:${Math.floor(new Date(stats.lastUpdate)/1000)}:R> par <@${stats.lastUpdateBy}>` : "—", inline: false }
+      )
+      .setFooter({ text: `Demandé par ${i.user.tag} • ${list.length} membres • page ${p+1}/${totalPages}`, iconURL: i.user.displayAvatarURL() })
+      .setTimestamp();
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`classement_page_${p-1}`).setLabel("◀ Précédent").setStyle(ButtonStyle.Secondary).setDisabled(p===0),
+      new ButtonBuilder().setCustomId(`classement_page_${p+1}`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary).setDisabled(p===totalPages-1)
+    );
+    await i.update({ embeds: [embed], components: totalPages>1 ? [row] : [] });
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "clear") {
