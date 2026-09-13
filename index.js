@@ -239,29 +239,21 @@ async function onReady() {
   try {
     const commands = [
       { name: "clear", description: "Supprime les messages du salon", default_member_permissions: "8192" },
-      { name: "stats", description: "Affiche les stats validé / échoué", default_member_permissions: "0" },
-      { name: "classement", description: "Classement des staffs par vérifications", default_member_permissions: "0" },
-      { name: "historique", description: "Historique d'un staff", default_member_permissions: "0", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] }
+      { name: "stats", description: "Affiche les stats validé / échoué" },
+      { name: "classement", description: "Classement des staffs par vérifications" },
+      { name: "historique", description: "Historique d'un staff", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] }
     ];
-    // guild instantané (2 sec) pour chaque guild cache + MOD_GUILD + global fallback
-    for (const cmdData of commands) {
-      await client.application.commands.create(cmdData).catch((e) => console.error("global create fail", cmdData.name, e.message));
-    }
-    // guild - cache
+    // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
+    try { await client.application.commands.set(commands); } catch (e) { console.error("global set fail:", e.message); }
     for (const [, g] of client.guilds.cache) {
-      for (const cmdData of commands) {
-        await g.commands.create(cmdData).catch((e) => console.error("guild cache create fail", g.id, cmdData.name, e.message));
-      }
+      try { await g.commands.set(commands); } catch (e) { console.error("guild set fail", g.id, e.message); }
     }
-    // guild MOD_GUILD fetch direct (au cas où pas en cache)
     try {
       const modGuild = await client.guilds.fetch(MOD_GUILD_ID).catch(() => null);
       if (modGuild && !client.guilds.cache.has(modGuild.id)) {
-        for (const cmdData of commands) {
-          await modGuild.commands.create(cmdData).catch(() => {});
-        }
+        await modGuild.commands.set(commands).catch(() => {});
       }
-    } catch (e) { console.error("guild fetch create fail:", e.message); }
+    } catch (e) { console.error("guild fetch set fail:", e.message); }
   } catch (e) { console.error("slash create fail:", e.message); }
   // charge stats depuis db-stats (persistant)
   try { await loadDbStats(); } catch (e) { console.error("loadDbStats onReady fail:", e.message); }
