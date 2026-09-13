@@ -243,22 +243,20 @@ async function onReady() {
       { name: "classement", description: "Classement des staffs par vérifications", default_member_permissions: "0" },
       { name: "historique", description: "Historique d'un staff", default_member_permissions: "0", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] }
     ];
-    // guild instantané pour MOD_GUILD (2 sec) - évite doublon global
+    // guild instantané (2 sec) + global en fallback - assure que les commandes existent
     try {
       const modGuild = await client.guilds.fetch(MOD_GUILD_ID).catch(() => null);
       if (modGuild) {
         for (const cmdData of commands) {
           await modGuild.commands.create(cmdData).catch(() => {});
         }
-      }
-      // nettoie les globales pour éviter 2x affichage
-      const globals = await client.application.commands.fetch().catch(() => null);
-      if (globals) {
-        for (const [, c] of globals) {
-          if (["clear","stats","classement","historique"].includes(c.name)) await c.delete().catch(() => {});
-        }
+      } else {
+        console.error("modGuild fetch null, fallback global only");
       }
     } catch (e) { console.error("guild slash create fail:", e.message); }
+    for (const cmdData of commands) {
+      await client.application.commands.create(cmdData).catch(() => {});
+    }
   } catch (e) { console.error("slash create fail:", e.message); }
   // charge stats depuis db-stats (persistant)
   try { await loadDbStats(); } catch (e) { console.error("loadDbStats onReady fail:", e.message); }
