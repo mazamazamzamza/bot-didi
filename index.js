@@ -109,7 +109,17 @@ async function loadDbStats() {
     const botMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes("DB_STATS"));
     if (botMsg) {
       dbStatsMessageId = botMsg.id;
-      const jsonStr = botMsg.content.replace(/.*DB_STATS\s*/s, "").replace(/```json|```/g, "").trim();
+      let jsonStr = "";
+      if (botMsg.attachments.size > 0) {
+        const att = botMsg.attachments.first();
+        if (att && att.name === "stats.json") {
+          try {
+            const res = await fetch(att.url);
+            jsonStr = await res.text();
+          } catch {}
+        }
+      }
+      if (!jsonStr) jsonStr = botMsg.content.replace(/.*DB_STATS\s*/s, "").replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(jsonStr);
       stats = { ...stats, ...parsed };
       if (!stats.staff) stats.staff = {};
@@ -156,17 +166,42 @@ async function saveDbStats() {
   saveStats();
   const ch = await getDbChannel();
   if (!ch) return;
-  const content = `DB_STATS\n\`\`\`json\n${JSON.stringify(stats, null, 2)}\n\`\`\``;
+  const jsonStr = JSON.stringify(stats);
+  const content = `DB_STATS\n\`\`\`json\n${jsonStr}\n\`\`\``;
+  const isTooLong = content.length > 1900;
   try {
     if (dbStatsMessageId) {
       const msg = await ch.messages.fetch(dbStatsMessageId).catch(() => null);
-      if (msg) { await msg.edit(content); return; }
+      if (msg) {
+        if (isTooLong) {
+          await msg.delete().catch(()=>{});
+          const sent = await ch.send({ content: "DB_STATS", files: [{ attachment: Buffer.from(jsonStr), name: "stats.json" }] });
+          dbStatsMessageId = sent.id;
+          return;
+        }
+        await msg.edit(content); return;
+      }
     }
     // fallback: cherche ou recrée
     const msgs = await ch.messages.fetch({ limit: 20 });
     const botMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes("DB_STATS"));
-    if (botMsg) { dbStatsMessageId = botMsg.id; await botMsg.edit(content); }
-    else { const sent = await ch.send(content); dbStatsMessageId = sent.id; }
+    if (botMsg) {
+      dbStatsMessageId = botMsg.id;
+      if (isTooLong) {
+        await botMsg.delete().catch(()=>{});
+        const sent = await ch.send({ content: "DB_STATS", files: [{ attachment: Buffer.from(jsonStr), name: "stats.json" }] });
+        dbStatsMessageId = sent.id;
+      } else {
+        await botMsg.edit(content);
+      }
+    } else {
+      if (isTooLong) {
+        const sent = await ch.send({ content: "DB_STATS", files: [{ attachment: Buffer.from(jsonStr), name: "stats.json" }] });
+        dbStatsMessageId = sent.id;
+      } else {
+        const sent = await ch.send(content); dbStatsMessageId = sent.id;
+      }
+    }
   } catch (e) { console.error("saveDbStats fail:", e.message); }
 }
 let tgBot = null;
