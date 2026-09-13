@@ -242,8 +242,8 @@ async function onReady() {
       { name: "stats", description: "Affiche les stats validé / échoué" },
       { name: "classement", description: "Classement des staffs par vérifications" },
       { name: "historique", description: "Historique d'un staff", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] },
-      { name: "tg_msg", description: "Envoie un MP Telegram à un membre (depuis Discord)", default_member_permissions: "8192", options: [{ name: "id", description: "ID Telegram (ex: 123456789)", type: 3, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
-      { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", default_member_permissions: "8192", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] }
+      { name: "tg_msg", description: "Envoie un MP Telegram à un membre (depuis Discord)", options: [{ name: "id", description: "ID Telegram (ex: 123456789)", type: 3, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] }
     ];
     // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
     try { await client.application.commands.set(commands); } catch (e) { console.error("global set fail:", e.message); }
@@ -397,8 +397,14 @@ client.on("interactionCreate", async (i) => {
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "tg_msg") {
-    if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
-      await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
+    const ALLOWED_ROLE = "1547699868317782096";
+    const ALLOWED_CHANNEL = "1548542207605342230";
+    if (i.channelId !== ALLOWED_CHANNEL) {
+      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
+      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
       return;
     }
     const tgId = i.options.getString("id");
@@ -416,8 +422,14 @@ client.on("interactionCreate", async (i) => {
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "dm") {
-    if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
-      await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
+    const ALLOWED_ROLE = "1547699868317782096";
+    const ALLOWED_CHANNEL = "1548542207605342230";
+    if (i.channelId !== ALLOWED_CHANNEL) {
+      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
+      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
       return;
     }
     const target = i.options.getUser("membre");
