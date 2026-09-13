@@ -367,11 +367,7 @@ client.on("interactionCreate", async (i) => {
   if (i.isChatInputCommand() && i.commandName === "historique") {
     const target = i.options.getUser("membre") || i.user;
     if (!stats.staff) stats.staff = {};
-    const s = stats.staff[target.id];
-    if (!s) {
-      await i.reply({ content: `Aucun historique pour ${target.tag} (\`${target.id}\`).` });
-      return;
-    }
+    const s = stats.staff[target.id] || { validated: 0, failed: 0, lastUpdate: null, lastStatus: null };
     const total = s.validated + s.failed;
     const rate = total ? Math.round((s.validated/total)*100) : 0;
     const lastStr = s.lastUpdate ? new Date(s.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
