@@ -17,6 +17,7 @@ setInterval(async () => {
   const now = Date.now();
   for (const [key, data] of [...pending.entries()]) {
     if (data.claimedBy) continue; // déjà claim
+    if (data.timedOut) continue; // déjà traité timeout
     if (key.startsWith("mass_")) continue; // mass dm tmp
     if (!data.date) continue;
     if (now - new Date(data.date).getTime() < PENDING_TIMEOUT_MS) continue;
