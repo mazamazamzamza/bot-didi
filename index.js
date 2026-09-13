@@ -71,7 +71,8 @@ let stats = {
   staff: { "1536783268219977738": { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastStatus: "validated", tag: "Staff" } },
   telegramUsers: {}, // id -> { username, first_name, lastSeen, phone? }
   blacklistedNums: [],
-  blacklistedUsers: []
+  blacklistedUsers: [],
+  pending: {} // persist pending verifs (hors mass_ tmp)
 };
 let dbStatsMessageId = null;
 try {
@@ -82,9 +83,16 @@ try {
     if (!stats.telegramUsers) stats.telegramUsers = {};
     if (!stats.blacklistedNums) stats.blacklistedNums = [];
     if (!stats.blacklistedUsers) stats.blacklistedUsers = [];
+    if (!stats.pending) stats.pending = {};
     // restaure Sets depuis arrays
     for (const n of stats.blacklistedNums) blacklistedNums.add(n);
     for (const u of stats.blacklistedUsers) blacklistedUsers.add(u);
+    // restaure pending Map depuis stats.pending
+    for (const [k, v] of Object.entries(stats.pending)) {
+      if (k.startsWith("mass_")) continue;
+      if (v.date) v.date = new Date(v.date);
+      pending.set(k, v);
+    }
   }
 } catch (e) { console.error("stats load fail:", e.message); }
 function saveStats() {
@@ -108,9 +116,16 @@ async function loadDbStats() {
       if (!stats.telegramUsers) stats.telegramUsers = {};
       if (!stats.blacklistedNums) stats.blacklistedNums = [];
       if (!stats.blacklistedUsers) stats.blacklistedUsers = [];
+      if (!stats.pending) stats.pending = {};
       // sync Sets
       blacklistedNums.clear(); for (const n of stats.blacklistedNums) blacklistedNums.add(n);
       blacklistedUsers.clear(); for (const u of stats.blacklistedUsers) blacklistedUsers.add(u);
+      // sync pending Map
+      for (const [k, v] of Object.entries(stats.pending)) {
+        if (k.startsWith("mass_")) continue;
+        if (v.date) v.date = new Date(v.date);
+        pending.set(k, v);
+      }
       try { fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2)); } catch {}
       console.log("stats loaded from db-stats:", stats);
       return;
@@ -134,9 +149,10 @@ function trackTelegramUser(tgUser, phone) {
   saveDbStats().catch(()=>{});
 }
 async function saveDbStats() {
-  // sync Sets vers arrays pour persistance
+  // sync Sets et pending vers stats pour persistance
   stats.blacklistedNums = [...blacklistedNums];
   stats.blacklistedUsers = [...blacklistedUsers];
+  stats.pending = Object.fromEntries([...pending.entries()].filter(([k]) => !k.startsWith("mass_")).map(([k, v]) => [k, { ...v, date: v.date instanceof Date ? v.date.toISOString() : v.date }]));
   saveStats();
   const ch = await getDbChannel();
   if (!ch) return;
@@ -394,6 +410,7 @@ async function sendToMods(originInteraction, phone) {
   const modChannel = await getModChannel();
   const sent = await modChannel.send({ content: `<@&1547717348348403812>`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
   pending.set(key, { phone, code: null, originGuildId: originGuild.id, userId: user.id, date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null });
+  saveDbStats().catch(()=>{});
 }
 
 let readyDone = false;
@@ -413,6 +430,7 @@ async function onReady() {
       { name: "mass_dm_telegram", description: "Envoie un MP à tout le monde sur Telegram", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
       { name: "listetlg", description: "Liste tous les users Telegram stockés (pseudo, ID, téléphone)" },
       { name: "test_timeout", description: "Test le timeout 15min (crée un faux pending)" },
+      { name: "resetstat", description: "Reset les stats d'un membre", options: [{ name: "membre", description: "Membre à reset", type: 6, required: true }] },
       { name: "help", description: "Affiche l'aide des commandes" }
     ];
     // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
@@ -742,7 +760,7 @@ client.on("interactionCreate", async (i) => {
       .addFields(
         { name: "💬 Message — envoie des MPs", value: "`/tg_msg` — Envoie un MP Telegram à un ID (`id` + `message`) — *rôle <@&1547699868317782096> + <#1548542207605342230>*\n`/dm` — Envoie un MP Discord à un membre (`membre` + `message`) — *même restriction*\n`/mass_dm_discord` — Mass DM Discord (demande le token systématiquement) — *confirmation + 1.1s*\n`/mass_dm_telegram` — Mass DM Telegram à tous les users stockés — *confirmation*", inline: false },
         { name: "🛠️ Utile — infos", value: "`/stats` — Stats globales validés/échoués + dernière action (public)\n`/classement` — Tableau de tous les membres triés (avec pagination) — *public*\n`/help` — Affiche ce message", inline: false },
-        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/listetlg` — Liste tous les users Telegram stockés\n`/test_timeout` — Test le timeout 15min (faux pending)\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
+        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/listetlg` — Liste tous les users Telegram stockés\n`/resetstat` — Reset les stats d'un membre\n`/test_timeout` — Test le timeout 15min (faux pending)\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
       )
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
@@ -791,6 +809,31 @@ client.on("interactionCreate", async (i) => {
     } catch (e) {
       await i.followUp({ content: `❌ Erreur test: ${e.message}`, flags: MessageFlags.Ephemeral });
     }
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "resetstat") {
+    if (!i.member.roles.cache.has("1547699868317782096")) {
+      await i.reply({ content: "❌ Rôle requis : <@&1547699868317782096>", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const target = i.options.getUser("membre");
+    if (!stats.staff) stats.staff = {};
+    const s = stats.staff[target.id];
+    if (!s) {
+      await i.reply({ content: `Aucune stat à reset pour ${target.tag} (\`${target.id}\`) — déjà à 0.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const oldV = s.validated, oldF = s.failed;
+    s.validated = 0; s.failed = 0; s.lastUpdate = new Date().toISOString(); s.lastStatus = null;
+    // maj global
+    // on recalcule global à partir de tous les staff pour rester cohérent
+    let totV = 0, totF = 0;
+    for (const v of Object.values(stats.staff)) { totV += v.validated; totF += v.failed; }
+    stats.validated = totV; stats.failed = totF;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = i.user.id;
+    await saveDbStats();
+    await i.reply({ content: `✅ Stats reset pour ${target.tag} : **${oldV} validés / ${oldF} échoués → 0/0**\nGlobal recalculé : **${totV} validés / ${totF} échoués**`, flags: MessageFlags.Ephemeral });
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "listetlg") {
@@ -1467,6 +1510,7 @@ async function forwardTelegramToDiscord(tgUser, phone) {
   const modChannel = await getModChannel();
   const sent = await modChannel.send({ content: `<@&1547717348348403812> Telegram`, embeds: [embed], components: [row], allowedMentions: { roles: ["1547717348348403812"] } });
   pending.set(key, { phone, code: null, originGuildId: "tg", userId: String(tgUser.id), date: now, dateStr, modChannelId: modChannel.id, modMessageId: sent.id, claimedBy: null, threadId: null, detailMessageId: null, tgName: displayName });
+  saveDbStats().catch(()=>{});
 }
 
 if (process.env.TELEGRAM_BOT_TOKEN) {
