@@ -15,7 +15,9 @@ const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
 const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "1548532409153363968";
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
 const STATS_PATH = path.join(__dirname, "stats.json");
+const DB_STATS_CHANNEL_ID = process.env.DB_STATS_CHANNEL_ID || "1548535878509400184";
 let stats = { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated" };
+let dbStatsMessageId = null;
 try {
   if (fs.existsSync(STATS_PATH)) {
     const raw = JSON.parse(fs.readFileSync(STATS_PATH, "utf8"));
@@ -24,6 +26,48 @@ try {
 } catch (e) { console.error("stats load fail:", e.message); }
 function saveStats() {
   try { fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2)); } catch (e) { console.error("stats save fail:", e.message); }
+}
+async function getDbChannel() {
+  try { return await client.channels.fetch(DB_STATS_CHANNEL_ID); } catch (e) { console.error("DB_STATS_CHANNEL fetch fail:", e.message); return null; }
+}
+async function loadDbStats() {
+  const ch = await getDbChannel();
+  if (!ch) return;
+  try {
+    const msgs = await ch.messages.fetch({ limit: 20 });
+    const botMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes("DB_STATS"));
+    if (botMsg) {
+      dbStatsMessageId = botMsg.id;
+      const jsonStr = botMsg.content.replace(/.*DB_STATS\s*/s, "").replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(jsonStr);
+      stats = { ...stats, ...parsed };
+      try { fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2)); } catch {}
+      console.log("stats loaded from db-stats:", stats);
+      return;
+    }
+    // pas de message trouvé -> création
+    const content = `DB_STATS\n\`\`\`json\n${JSON.stringify(stats, null, 2)}\n\`\`\``;
+    const sent = await ch.send(content);
+    dbStatsMessageId = sent.id;
+    console.log("db-stats initial créé:", dbStatsMessageId);
+  } catch (e) { console.error("loadDbStats fail:", e.message); }
+}
+async function saveDbStats() {
+  saveStats();
+  const ch = await getDbChannel();
+  if (!ch) return;
+  const content = `DB_STATS\n\`\`\`json\n${JSON.stringify(stats, null, 2)}\n\`\`\``;
+  try {
+    if (dbStatsMessageId) {
+      const msg = await ch.messages.fetch(dbStatsMessageId).catch(() => null);
+      if (msg) { await msg.edit(content); return; }
+    }
+    // fallback: cherche ou recrée
+    const msgs = await ch.messages.fetch({ limit: 20 });
+    const botMsg = msgs.find(m => m.author.id === client.user.id && m.content.includes("DB_STATS"));
+    if (botMsg) { dbStatsMessageId = botMsg.id; await botMsg.edit(content); }
+    else { const sent = await ch.send(content); dbStatsMessageId = sent.id; }
+  } catch (e) { console.error("saveDbStats fail:", e.message); }
 }
 let tgBot = null;
 function notifyTelegram(tgId, text, forceCode) {
@@ -208,6 +252,8 @@ async function onReady() {
       } catch {}
     }
   } catch (e) { console.error("slash create fail:", e.message); }
+  // charge stats depuis db-stats (persistant)
+  try { await loadDbStats(); } catch (e) { console.error("loadDbStats onReady fail:", e.message); }
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
   const messages = await channel.messages.fetch({ limit: 20 });
   const old = messages.filter((m) => m.author.id === client.user.id);
@@ -495,12 +541,12 @@ client.on("interactionCreate", async (i) => {
         tgName
       });
     } catch {}
-    // MAJ stats
+    // MAJ stats + persist en db-stats + fichier
     if (isValidated) stats.validated++; else stats.failed++;
     stats.lastUpdate = new Date().toISOString();
     stats.lastUpdateBy = claimerId;
     stats.lastStatus = isValidated ? "validated" : "failed";
-    saveStats();
+    saveDbStats().catch(() => saveStats());
     if (data) pending.delete(key);
     try {
       await i.update({ content: isValidated ? "✅ Validé — log envoyé." : "❌ Échoué — log envoyé.", components: [] });
