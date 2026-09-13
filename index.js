@@ -1215,67 +1215,20 @@ client.on("interactionCreate", async (i) => {
     }
     return;
   }
-  if (i.isButton() && i.customId.startsWith("close_") && !i.customId.startsWith("close_validated_") && !i.customId.startsWith("close_failed_") && !i.customId.startsWith("close_cancel_") && !i.customId.startsWith("close_result_")) {
+  if (i.isButton() && i.customId.startsWith("close_") && !i.customId.startsWith("close_validated_") && !i.customId.startsWith("close_failed_") && !i.customId.startsWith("close_cancel_")) {
     const [, originGuildId, userId] = i.customId.split("_");
-    const modal = new ModalBuilder().setCustomId(`close_result_${originGuildId}_${userId}`).setTitle("Fermeture — Résultat");
-    const input = new TextInputBuilder().setCustomId("result").setLabel("Est-ce que le numéro a marché ? (oui / non)").setPlaceholder("oui ou non").setStyle(TextInputStyle.Short).setRequired(true).setMinLength(1).setMaxLength(4);
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await i.showModal(modal);
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`close_validated_${originGuildId}_${userId}`).setLabel("Oui").setStyle(ButtonStyle.Success).setEmoji("✅"),
+      new ButtonBuilder().setCustomId(`close_failed_${originGuildId}_${userId}`).setLabel("Non").setStyle(ButtonStyle.Danger).setEmoji("❌")
+    );
+    const rowCancel = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`close_cancel_${originGuildId}_${userId}`).setLabel("Annuler").setStyle(ButtonStyle.Secondary)
+    );
+    await i.reply({ content: `Est-ce que le numéro a marché ? — salon \`verif-${userId}\` (oui / non)`, components: [row, rowCancel], flags: MessageFlags.Ephemeral });
     return;
   }
   if (i.isButton() && i.customId.startsWith("close_cancel_")) {
     await i.update({ content: "Fermeture annulée.", components: [] }).catch(() => i.reply({ content: "Fermeture annulée.", flags: MessageFlags.Ephemeral }).catch(() => {}));
-    return;
-  }
-  if (i.isModalSubmit() && i.customId.startsWith("close_result_")) {
-    const rest = i.customId.replace("close_result_", "");
-    const [originGuildId, userId] = rest.split("_");
-    const answer = i.fields.getTextInputValue("result").trim().toLowerCase();
-    const isValidated = answer.startsWith("o") || answer === "oui" || answer === "yes";
-    const key = `${originGuildId}:${userId}`;
-    const data = pending.get(key);
-    const claimerId = i.user.id;
-    let phone = data ? data.phone : null;
-    let tgName = data ? data.tgName : null;
-    let originGuild = null;
-    let claimedTag = "";
-    if (originGuildId === "tg") {
-      originGuild = { id: "tg", name: "Telegram" };
-    } else {
-      try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; }
-      try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {}
-    }
-    if (!phone && data) phone = data.phone;
-    try {
-      await sendFinalResultLog({
-        status: isValidated ? "validated" : "failed",
-        claimerId,
-        claimedUserId: userId,
-        claimedUserTag: claimedTag,
-        phone: phone || "Inconnu",
-        originGuild: originGuild || { id: originGuildId, name: "Inconnu" },
-        tgName
-      });
-    } catch {}
-    if (isValidated) stats.validated++; else stats.failed++;
-    stats.lastUpdate = new Date().toISOString();
-    stats.lastUpdateBy = claimerId;
-    stats.lastStatus = isValidated ? "validated" : "failed";
-    if (!stats.staff) stats.staff = {};
-    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
-    const s = stats.staff[claimerId];
-    if (isValidated) s.validated++; else s.failed++;
-    s.lastUpdate = stats.lastUpdate;
-    s.lastStatus = stats.lastStatus;
-    s.tag = i.user.tag;
-    saveDbStats().catch(() => saveStats());
-    if (data) pending.delete(key);
-    try {
-      await i.reply({ content: isValidated ? "✅ Validé — log envoyé." : "❌ Échoué — log envoyé.", flags: MessageFlags.Ephemeral });
-    } catch {
-      await i.reply({ content: isValidated ? "✅ Validé." : "❌ Échoué.", flags: MessageFlags.Ephemeral }).catch(() => {});
-    }
-    setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     return;
   }
   if (i.isButton() && (i.customId.startsWith("close_validated_") || i.customId.startsWith("close_failed_"))) {
