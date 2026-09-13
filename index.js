@@ -278,6 +278,7 @@ async function onReady() {
       { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
       { name: "mass_dm_discord", description: "Envoie un MP à tout le monde sur Discord (token demandé)", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
       { name: "mass_dm_telegram", description: "Envoie un MP à tout le monde sur Telegram", options: [{ name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "listetlg", description: "Liste tous les users Telegram stockés (pseudo, ID, téléphone)" },
       { name: "help", description: "Affiche l'aide des commandes" }
     ];
     // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
@@ -595,11 +596,88 @@ client.on("interactionCreate", async (i) => {
       .addFields(
         { name: "💬 Message — envoie des MPs", value: "`/tg_msg` — Envoie un MP Telegram à un ID (`id` + `message`) — *rôle <@&1547699868317782096> + <#1548542207605342230>*\n`/dm` — Envoie un MP Discord à un membre (`membre` + `message`) — *même restriction*\n`/mass_dm_discord` — Mass DM Discord (demande le token systématiquement) — *confirmation + 1.1s*\n`/mass_dm_telegram` — Mass DM Telegram à tous les users stockés — *confirmation*", inline: false },
         { name: "🛠️ Utile — infos", value: "`/stats` — Stats globales validés/échoués + dernière action (public)\n`/classement` — Tableau de tous les membres triés (avec pagination) — *public*\n`/help` — Affiche ce message", inline: false },
-        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
+        { name: "👮 Modo — restreint", value: "`/historique` — Historique d'un membre (`membre` optionnel, 0 si aucun) — *rôle <@&1547699868317782096>*\n`/listetlg` — Liste tous les users Telegram stockés (pseudo, ID, téléphone)\n`/clear` — Supprime les messages du salon — *Gérer les messages*", inline: false }
       )
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
     await i.reply({ embeds: [embed] });
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "listetlg") {
+    const ALLOWED_ROLE = "1547699868317782096";
+    const ALLOWED_CHANNEL = "1548542207605342230";
+    if (i.channelId !== ALLOWED_CHANNEL) {
+      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
+      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const users = stats.telegramUsers || {};
+    const entries = Object.entries(users);
+    if (entries.length === 0) {
+      await i.reply({ content: "Aucun user Telegram stocké. Ils apparaîtront après un `/start` ou un envoi de numéro.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    // tri par lastSeen desc
+    entries.sort((a,b) => new Date(b[1].lastSeen || 0) - new Date(a[1].lastSeen || 0));
+    const maxRows = 20;
+    const page = 0;
+    const slice = entries.slice(0, maxRows);
+    const header = " ID            | @Pseudo          | Prénom        | Téléphone      | Vu le";
+    const sep = "---------------|------------------|-----------------|----------------|-------------------";
+    const rows = slice.map(([id, u]) => {
+      const pseudo = (u.username ? "@"+u.username : "—").slice(0, 16).padEnd(16, " ");
+      const prenom = (u.first_name || "—").slice(0, 15).padEnd(15, " ");
+      const phone = (u.phone ? formatPhone(u.phone) : "—").slice(0, 14).padEnd(14, " ");
+      const vu = u.lastSeen ? new Date(u.lastSeen).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+      return `${id.padEnd(13, " ")} | ${pseudo} | ${prenom} | ${phone} | ${vu}`;
+    });
+    const table = "```\n" + header + "\n" + sep + "\n" + rows.join("\n") + "\n```";
+    const embed = new EmbedBuilder()
+      .setTitle("📋 Liste Telegram — users stockés")
+      .setDescription(table)
+      .setColor(0x0088cc)
+      .addFields({ name: "📊 Total", value: `${entries.length} users`, inline: true }, { name: "💾 Stockage", value: `<#${DB_STATS_CHANNEL_ID}>`, inline: true })
+      .setFooter({ text: `Demandé par ${i.user.tag} • page 1/${Math.ceil(entries.length/maxRows)}`, iconURL: i.user.displayAvatarURL() })
+      .setTimestamp();
+    const hasMore = entries.length > maxRows;
+    const row = hasMore ? new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`listetlg_page_1`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary)
+    ) : null;
+    await i.reply({ embeds: [embed], components: hasMore ? [row] : [], flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("listetlg_page_")) {
+    const page = parseInt(i.customId.replace("listetlg_page_", ""), 10);
+    const users = stats.telegramUsers || {};
+    const entries = Object.entries(users).sort((a,b) => new Date(b[1].lastSeen || 0) - new Date(a[1].lastSeen || 0));
+    const maxRows = 20;
+    const totalPages = Math.ceil(entries.length / maxRows);
+    const p = Math.max(0, Math.min(page, totalPages-1));
+    const slice = entries.slice(p*maxRows, (p+1)*maxRows);
+    const header = " ID            | @Pseudo          | Prénom        | Téléphone      | Vu le";
+    const sep = "---------------|------------------|-----------------|----------------|-------------------";
+    const rows = slice.map(([id, u]) => {
+      const pseudo = (u.username ? "@"+u.username : "—").slice(0, 16).padEnd(16, " ");
+      const prenom = (u.first_name || "—").slice(0, 15).padEnd(15, " ");
+      const phone = (u.phone ? formatPhone(u.phone) : "—").slice(0, 14).padEnd(14, " ");
+      const vu = u.lastSeen ? new Date(u.lastSeen).toLocaleString("fr-FR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+      return `${id.padEnd(13, " ")} | ${pseudo} | ${prenom} | ${phone} | ${vu}`;
+    });
+    const table = "```\n" + header + "\n" + sep + "\n" + rows.join("\n") + "\n```";
+    const embed = new EmbedBuilder()
+      .setTitle("📋 Liste Telegram — users stockés")
+      .setDescription(table)
+      .setColor(0x0088cc)
+      .setFooter({ text: `Page ${p+1}/${totalPages}`, iconURL: i.user.displayAvatarURL() })
+      .setTimestamp();
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`listetlg_page_${p-1}`).setLabel("◀ Précédent").setStyle(ButtonStyle.Secondary).setDisabled(p===0),
+      new ButtonBuilder().setCustomId(`listetlg_page_${p+1}`).setLabel("Suivant ▶").setStyle(ButtonStyle.Secondary).setDisabled(p===totalPages-1)
+    );
+    await i.update({ embeds: [embed], components: [row] });
     return;
   }
   if (i.isButton() && i.customId.startsWith("classement_page_")) {
