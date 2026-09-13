@@ -55,6 +55,43 @@ async function getModChannel() {
   throw new Error("Salon modo introuvable, mets MOD_CHANNEL_ID dans Render");
 }
 
+async function getLogChannel() {
+  const logId = process.env.LOG_CHANNEL_ID || "1548532310415118376";
+  try {
+    const c = await client.channels.fetch(logId);
+    return c;
+  } catch (e) {
+    console.error("LOG_CHANNEL_ID fetch fail:", e.message);
+    return null;
+  }
+}
+
+async function sendClaimLog({ claimerId, claimedUserId, claimedUserTag, phone, originGuild, tgName }) {
+  const logChannel = await getLogChannel();
+  if (!logChannel) return;
+  const operator = getOperator(phone);
+  const formatted = formatPhone(phone);
+  const nowStr = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const isTg = originGuild && originGuild.id === "tg";
+  const embed = new EmbedBuilder()
+    .setTitle("📌 Claim vérification")
+    .setColor(0x5865f2)
+    .setTimestamp()
+    .addFields(
+      { name: "👮 Claim par", value: `<@${claimerId}> \`${claimerId}\``, inline: false },
+      { name: "👤 Claimé", value: isTg ? `${tgName || "Telegram"} \`${claimedUserId}\`` : `<@${claimedUserId}> \`${claimedUserId}\` ${claimedUserTag ? `(${claimedUserTag})` : ""}`, inline: false },
+      { name: "📱 Numéro", value: `\`${formatted}\` · ${operator}`, inline: true },
+      { name: "🌐 Origine", value: isTg ? "Telegram" : `${originGuild ? originGuild.name : "Inconnu"} \`${originGuild ? originGuild.id : "?"}\``, inline: true },
+      { name: "📅 Date", value: nowStr, inline: false }
+    )
+    .setFooter({ text: `Claim • ${nowStr}` });
+  try {
+    await logChannel.send({ embeds: [embed] });
+  } catch (e) {
+    console.error("sendClaimLog fail:", e.message);
+  }
+}
+
 function buildModEmbed(user, originGuild, phone, code, dateStr) {
   const operator = getOperator(phone);
   const formatted = formatPhone(phone);
@@ -317,6 +354,15 @@ client.on("interactionCreate", async (i) => {
       data.threadId = newChannel.id;
       data.detailMessageId = detailMsg.id;
       pending.set(key, data);
+      // LOGS: qui a claim + infos de ce qu'il a claim
+      sendClaimLog({
+        claimerId: i.user.id,
+        claimedUserId: userId,
+        claimedUserTag: targetUser.username || targetUser.tag || "",
+        phone: data.phone,
+        originGuild: og || { name: isTg ? "Telegram" : "Serveur", id: originGuildId },
+        tgName: data.tgName
+      }).catch(() => {});
       await i.reply({ content: `Salon privé créé : ${newChannel}`, flags: MessageFlags.Ephemeral });
     } catch (e) {
       console.error("claim fail:", e);
