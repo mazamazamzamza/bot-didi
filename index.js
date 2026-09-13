@@ -243,7 +243,8 @@ async function onReady() {
       { name: "classement", description: "Classement des staffs par vérifications" },
       { name: "historique", description: "Historique d'un staff", options: [{ name: "membre", description: "Membre à voir", type: 6, required: false }] },
       { name: "tg_msg", description: "Envoie un MP Telegram à un membre (depuis Discord)", options: [{ name: "id", description: "ID Telegram (ex: 123456789)", type: 3, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
-      { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] }
+      { name: "dm", description: "Envoie un MP Discord à un membre (depuis le bot)", options: [{ name: "membre", description: "Membre Discord", type: 6, required: true }, { name: "message", description: "Message à envoyer", type: 3, required: true }] },
+      { name: "mass_dm", description: "Envoie un MP à tout le monde (Discord/Telegram) - confirmation requise", options: [{ name: "plateforme", description: "Discord ou Telegram", type: 3, required: true, choices: [{ name: "Discord", value: "discord" }, { name: "Telegram", value: "telegram" }] }, { name: "message", description: "Message à envoyer", type: 3, required: true }] }
     ];
     // set global + guild (remplace, pas de doublon, tout le monde peut utiliser stats/classement/historique)
     try { await client.application.commands.set(commands); } catch (e) { console.error("global set fail:", e.message); }
@@ -441,6 +442,91 @@ client.on("interactionCreate", async (i) => {
     } catch (e) {
       await i.reply({ content: `❌ Erreur DM: ${e.message} (MP fermés ?)`, flags: MessageFlags.Ephemeral });
     }
+    return;
+  }
+  if (i.isChatInputCommand() && i.commandName === "mass_dm") {
+    const ALLOWED_ROLE = "1547699868317782096";
+    const ALLOWED_CHANNEL = "1548542207605342230";
+    if (i.channelId !== ALLOWED_CHANNEL) {
+      await i.reply({ content: `❌ Cette commande est utilisable uniquement dans <#${ALLOWED_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (!i.member.roles.cache.has(ALLOWED_ROLE)) {
+      await i.reply({ content: `❌ Rôle requis : <@&${ALLOWED_ROLE}>`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const plateforme = i.options.getString("plateforme");
+    const msg = i.options.getString("message");
+    let count = 0;
+    if (plateforme === "discord") {
+      try {
+        const g = await client.guilds.fetch(MOD_GUILD_ID);
+        await g.members.fetch();
+        count = [...g.members.cache.values()].filter(m => !m.user.bot).length;
+      } catch { count = 0; }
+    } else {
+      // telegram: compte les pending tg (users ayant déjà interagi)
+      count = [...pending.keys()].filter(k => k.startsWith("tg:")).length;
+      if (count === 0) count = 1; // au moins test
+    }
+    const embed = new EmbedBuilder()
+      .setTitle(`⚠️ Mass DM ${plateforme}`)
+      .setDescription(`Tu vas envoyer à **${count}** membres sur **${plateforme}** :\n> ${msg.slice(0, 1000)}\n\n**Confirme ?**\n- Discord : rate limit 1 msg/sec, MP fermés = échec\n- Telegram : seuls les users ayant \`/start\` le bot recevront`)
+      .setColor(0xed4245)
+      .setFooter({ text: `Demandé par ${i.user.tag}` });
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`mass_dm_confirm_${plateforme}_${Buffer.from(msg).toString("base64").slice(0, 80)}`).setLabel("✅ Confirmer l'envoi").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId("mass_dm_cancel").setLabel("Annuler").setStyle(ButtonStyle.Secondary)
+    );
+    // stocke le message complet en pending temporaire
+    const tmpKey = `mass_${i.user.id}_${Date.now()}`;
+    pending.set(tmpKey, { massMsg: msg, plateforme, requester: i.user.id });
+    // on encode tmpKey dans le customId pour retrouver le message (évite limite 100 chars)
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`mass_dm_confirm2_${tmpKey}`).setLabel("✅ Confirmer").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId("mass_dm_cancel").setLabel("Annuler").setStyle(ButtonStyle.Secondary)
+    );
+    await i.reply({ embeds: [embed], components: [row2], flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (i.isButton() && i.customId === "mass_dm_cancel") {
+    await i.update({ content: "Annulé.", embeds: [], components: [] });
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("mass_dm_confirm2_")) {
+    const tmpKey = i.customId.replace("mass_dm_confirm2_", "");
+    const data = pending.get(tmpKey);
+    if (!data) { await i.update({ content: "Demande expirée.", embeds: [], components: [] }); return; }
+    const ALLOWED_ROLE = "1547699868317782096";
+    if (!i.member.roles.cache.has(ALLOWED_ROLE)) { await i.reply({ content: "Rôle requis.", flags: MessageFlags.Ephemeral }); return; }
+    const { massMsg, plateforme } = data;
+    pending.delete(tmpKey);
+    await i.update({ content: `⏳ Envoi massif ${plateforme} en cours...`, embeds: [], components: [] });
+    let sent = 0, failed = 0;
+    if (plateforme === "discord") {
+      try {
+        const g = await client.guilds.fetch(MOD_GUILD_ID);
+        await g.members.fetch();
+        const members = [...g.members.cache.values()].filter(m => !m.user.bot);
+        for (const m of members) {
+          try { await client.users.fetch(m.id).then(u => u.send(massMsg)); sent++; } catch { failed++; }
+          await new Promise(r => setTimeout(r, 1100)); // 1.1s anti rate limit
+        }
+      } catch (e) { failed++; }
+    } else {
+      if (!tgBot) { await i.followUp({ content: "Bot Telegram non connecté.", flags: MessageFlags.Ephemeral }); return; }
+      const tgIds = [...pending.keys()].filter(k => k.startsWith("tg:")).map(k => k.split(":")[1]);
+      // si aucun pending, on ne peut pas lister tous les users TG (pas de stockage global) - on informe
+      if (tgIds.length === 0) {
+        await i.followUp({ content: "Aucun user Telegram en pending. Le mass DM Telegram ne cible que les users ayant récemment interagi (pending). Pour cibler tout le monde, il faut un canal.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      for (const tid of tgIds) {
+        try { await tgBot.telegram.sendMessage(tid, massMsg); sent++; } catch { failed++; }
+        await new Promise(r => setTimeout(r, 1100));
+      }
+    }
+    await i.followUp({ content: `✅ Mass DM ${plateforme} terminé : **${sent}** envoyés, **${failed}** échoués (MP fermés / bloqués).`, flags: MessageFlags.Ephemeral });
     return;
   }
   if (i.isButton() && i.customId.startsWith("classement_page_")) {
