@@ -570,7 +570,6 @@ client.on("interactionCreate", async (i) => {
         }
       } catch (e) { failed++; }
       if (needDestroy) { try { await targetClient.destroy(); } catch {} }
-    }
     } else {
       if (!tgBot) { await i.followUp({ content: "Bot Telegram non connecté.", flags: MessageFlags.Ephemeral }); return; }
       let tgIds = Object.keys(stats.telegramUsers || {});
