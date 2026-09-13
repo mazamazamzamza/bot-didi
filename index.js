@@ -1,4 +1,6 @@
 require("dotenv").config();
+const fs = require("fs");
+const path = require("path");
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField, MessageFlags } = require("discord.js");
 const express = require("express");
 const app = express();
@@ -12,6 +14,17 @@ const blacklistedUsers = new Set();
 const MOD_GUILD_ID = process.env.MOD_GUILD_ID || "1547685592928751628";
 const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "1548532409153363968";
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
+const STATS_PATH = path.join(__dirname, "stats.json");
+let stats = { validated: 0, failed: 0, lastUpdate: null, lastUpdateBy: null, lastStatus: null };
+try {
+  if (fs.existsSync(STATS_PATH)) {
+    const raw = JSON.parse(fs.readFileSync(STATS_PATH, "utf8"));
+    stats = { ...stats, ...raw };
+  }
+} catch (e) { console.error("stats load fail:", e.message); }
+function saveStats() {
+  try { fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2)); } catch (e) { console.error("stats save fail:", e.message); }
+}
 let tgBot = null;
 function notifyTelegram(tgId, text, forceCode) {
   if (!tgBot) return;
@@ -178,14 +191,15 @@ async function onReady() {
   readyDone = true;
   console.log(`Connecte en tant que ${client.user.tag}`);
   try {
-    const cmdData = {
-      name: "clear",
-      description: "Supprime les messages du salon",
-      default_member_permissions: "8192"
-    };
-    await client.application.commands.create(cmdData);
-    for (const [, g] of client.guilds.cache) {
-      try { await g.commands.create(cmdData); } catch {}
+    const commands = [
+      { name: "clear", description: "Supprime les messages du salon", default_member_permissions: "8192" },
+      { name: "stats", description: "Affiche les stats validé / échoué", default_member_permissions: "0" }
+    ];
+    for (const cmdData of commands) {
+      await client.application.commands.create(cmdData);
+      for (const [, g] of client.guilds.cache) {
+        try { await g.commands.create(cmdData); } catch {}
+      }
     }
   } catch (e) { console.error("slash create fail:", e.message); }
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
@@ -214,6 +228,30 @@ client.on("guildMemberAdd", async (m) => {
 });
 
 client.on("interactionCreate", async (i) => {
+  if (i.isChatInputCommand() && i.commandName === "stats") {
+    const total = stats.validated + stats.failed;
+    const successRate = total > 0 ? Math.round((stats.validated / total) * 100) : 0;
+    const lastUpdateStr = stats.lastUpdate ? new Date(stats.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Aucune";
+    const lastBy = stats.lastUpdateBy ? `<@${stats.lastUpdateBy}>` : "—";
+    const lastStatusEmoji = stats.lastStatus === "validated" ? "✅ Validé" : stats.lastStatus === "failed" ? "❌ Échoué" : "—";
+    const embed = new EmbedBuilder()
+      .setTitle("📊 Stats vérifications")
+      .setColor(0x5865f2)
+      .setThumbnail(client.user.displayAvatarURL())
+      .addFields(
+        { name: "✅ Validés", value: `**${stats.validated}**`, inline: true },
+        { name: "❌ Échoués", value: `**${stats.failed}**`, inline: true },
+        { name: "📦 Total", value: `**${total}**`, inline: true },
+        { name: "📈 Taux de réussite", value: `**${successRate}%**`, inline: true },
+        { name: "🕒 Dernière actualisation", value: `${lastUpdateStr}`, inline: false },
+        { name: "👤 Par", value: `${lastBy} ${stats.lastUpdateBy ? `\`${stats.lastUpdateBy}\`` : ""}`, inline: true },
+        { name: "📌 Dernier statut", value: `${lastStatusEmoji}`, inline: true }
+      )
+      .setFooter({ text: `Demandé par ${i.user.tag}` , iconURL: i.user.displayAvatarURL() })
+      .setTimestamp();
+    await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    return;
+  }
   if (i.isChatInputCommand() && i.commandName === "clear") {
     if (!i.memberPermissions.has(PermissionsBitField.Flags.ManageMessages)) {
       await i.reply({ content: "Permission manquante.", flags: MessageFlags.Ephemeral });
@@ -451,6 +489,12 @@ client.on("interactionCreate", async (i) => {
         tgName
       });
     } catch {}
+    // MAJ stats
+    if (isValidated) stats.validated++; else stats.failed++;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = claimerId;
+    stats.lastStatus = isValidated ? "validated" : "failed";
+    saveStats();
     if (data) pending.delete(key);
     try {
       await i.update({ content: isValidated ? "✅ Validé — log envoyé." : "❌ Échoué — log envoyé.", components: [] });
