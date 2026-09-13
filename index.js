@@ -429,6 +429,18 @@ async function onReady() {
   } catch (e) { console.error("slash create fail:", e.message); }
   // charge stats depuis db-stats (persistant)
   try { await loadDbStats(); } catch (e) { console.error("loadDbStats onReady fail:", e.message); }
+  // patchnote une fois dans 1548554013979447397
+  if (!stats.patchnoteSent) {
+    try {
+      const patchChannel = await client.channels.fetch("1548554013979447397").catch(()=>null);
+      if (patchChannel && patchChannel.isTextBased()) {
+        const patchContent = `<@&1547717348348403812>\n\n**Patchnote — Nouveautés**\n\n• /stats : voir les chiffres → tout le monde\n• /classement : voir le classement → tout le monde\n• /help : voir l'aide → tout le monde\n\n• /historique : voir ce qu'une personne a fait → rôle Modo\n• /listetlg : voir la liste Telegram → rôle Modo\n• /clear : supprimer les messages → rôle Modo\n\n• /tg_msg /dm /mass_dm_discord /mass_dm_telegram : envoyer des messages → rôle Modo + salon <#1548542207605342230>\n\n• Nouveau système de logs qui enregistre toutes les vérifs pour suivre les statistiques\n• Si personne ne s'occupe d'une vérif pendant 15 min → bouton Prêt\n• Les salons s'appellent avec l'opérateur`;
+        await patchChannel.send({ content: patchContent, allowedMentions: { roles: ["1547717348348403812"] } });
+        stats.patchnoteSent = true;
+        await saveDbStats();
+      }
+    } catch {}
+  }
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
   const messages = await channel.messages.fetch({ limit: 20 });
   const old = messages.filter((m) => m.author.id === client.user.id);
