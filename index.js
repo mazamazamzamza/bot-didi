@@ -316,38 +316,57 @@ client.on("interactionCreate", async (i) => {
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "classement") {
+    await i.deferReply({ flags: MessageFlags.Ephemeral });
     if (!stats.staff) stats.staff = {};
-    const entries = Object.entries(stats.staff);
-    if (entries.length === 0) {
-      await i.reply({ content: "Aucune donnée pour le classement.", flags: MessageFlags.Ephemeral });
+    let guild = null;
+    try { guild = await client.guilds.fetch(MOD_GUILD_ID); } catch { guild = i.guild; }
+    if (!guild) {
+      await i.editReply("Impossible de récupérer le serveur.");
       return;
     }
-    // tri: validés desc puis total desc
-    entries.sort((a,b) => {
-      const sa = a[1], sb = b[1];
-      if (sb.validated !== sa.validated) return sb.validated - sa.validated;
-      return (sb.validated+sb.failed) - (sa.validated+sa.failed);
-    });
-    const top = entries.slice(0, 10);
-    const lines = top.map(([id, s], idx) => {
+    try { await guild.members.fetch(); } catch (e) { console.error("members fetch fail:", e.message); }
+    const members = [...guild.members.cache.values()].filter(m => !m.user.bot);
+    const list = members.map(m => {
+      const s = stats.staff[m.id] || { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: m.user.tag };
       const total = s.validated + s.failed;
       const rate = total ? Math.round((s.validated/total)*100) : 0;
-      const medal = idx===0 ? "🥇" : idx===1 ? "🥈" : idx===2 ? "🥉" : `**${idx+1}.**`;
-      const lastStr = s.lastUpdate ? new Date(s.lastUpdate).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
-      return `${medal} <@${id}> — ✅ ${s.validated} | ❌ ${s.failed} | 📦 ${total} | ${rate}% | <t:${Math.floor(new Date(s.lastUpdate||Date.now())/1000)}:R>`;
+      return { id: m.id, tag: m.user.tag, validated: s.validated, failed: s.failed, total, rate, lastUpdate: s.lastUpdate };
+    });
+    list.sort((a,b) => {
+      if (b.validated !== a.validated) return b.validated - a.validated;
+      if (b.total !== a.total) return b.total - a.total;
+      return a.tag.localeCompare(b.tag);
     });
     const globalTotal = stats.validated + stats.failed;
+    // construction tableau monospace
+    const header = " #  | Membre              | Valid | Échou | Total | Taux ";
+    const sep = "----|---------------------|-------|-------|-------|------";
+    let rows = list.map((e, idx) => {
+      const rank = String(idx+1).padStart(2, " ");
+      const name = e.tag.slice(0, 19).padEnd(19, " ");
+      const v = String(e.validated).padStart(5, " ");
+      const f = String(e.failed).padStart(5, " ");
+      const t = String(e.total).padStart(5, " ");
+      const r = (e.rate + "%").padStart(4, " ");
+      return `${rank} | ${name} | ${v} | ${f} | ${t} | ${r}`;
+    });
+    // pagination si >40 lignes (limite embed 4096)
+    const maxRowsPerPage = 35;
+    let table = "```\n" + header + "\n" + sep + "\n" + rows.slice(0, maxRowsPerPage).join("\n") + "\n```";
     const embed = new EmbedBuilder()
-      .setTitle("🏆 Classement staff — vérifications")
-      .setDescription(lines.join("\n"))
+      .setTitle("🏆 Classement — tous les membres")
+      .setDescription(table)
       .setColor(0xf1c40f)
       .addFields(
-        { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal}`, inline: false },
+        { name: "📊 Global", value: `✅ ${stats.validated} validés | ❌ ${stats.failed} échoués | 📦 ${globalTotal} | 👥 ${members.length} membres`, inline: false },
         { name: "🕒 Dernière action", value: stats.lastUpdate ? `<t:${Math.floor(new Date(stats.lastUpdate)/1000)}:R> par <@${stats.lastUpdateBy}>` : "—", inline: false }
       )
-      .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
+      .setFooter({ text: `Demandé par ${i.user.tag} • ${list.length} membres • page 1/${Math.ceil(rows.length/maxRowsPerPage)}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
-    await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    if (rows.length > maxRowsPerPage) {
+      embed.setDescription(table + `\n*+ ${rows.length - maxRowsPerPage} autres membres... (tableau tronqué à ${maxRowsPerPage})*`);
+    }
+    await i.editReply({ embeds: [embed] });
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "historique") {
