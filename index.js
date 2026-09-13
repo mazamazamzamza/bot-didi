@@ -197,9 +197,15 @@ async function onReady() {
     ];
     for (const cmdData of commands) {
       await client.application.commands.create(cmdData);
-      for (const [, g] of client.guilds.cache) {
-        try { await g.commands.create(cmdData); } catch {}
-      }
+    }
+    // nettoie les doublons guild (global déjà créé) pour éviter 2x /stats
+    for (const [, g] of client.guilds.cache) {
+      try {
+        const guildCmds = await g.commands.fetch();
+        for (const [, c] of guildCmds) {
+          if (c.name === "clear" || c.name === "stats") await c.delete().catch(() => {});
+        }
+      } catch {}
     }
   } catch (e) { console.error("slash create fail:", e.message); }
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
