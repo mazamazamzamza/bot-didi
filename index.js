@@ -20,31 +20,39 @@ setInterval(async () => {
     if (key.startsWith("mass_")) continue; // mass dm tmp
     if (!data.date) continue;
     if (now - new Date(data.date).getTime() < PENDING_TIMEOUT_MS) continue;
-    // timeout 15min sans claim
+    // timeout 15min sans claim -> précise pas claim + bouton Prêt + DM "réessaie plus tard"
     try {
       const isTg = data.originGuildId === "tg";
       if (isTg) {
         if (tgBot) {
-          try { await tgBot.telegram.sendMessage(data.userId, "⏳ Aucun modérateur n'a pris ta demande. Réessaie plus tard."); } catch {}
+          try { await tgBot.telegram.sendMessage(data.userId, "⏳ Aucun modérateur n'a pris ta demande pour le moment. Réessaie plus tard, un modérateur te prendra en charge dès que possible."); } catch {}
         }
       } else {
         try {
           const u = await client.users.fetch(data.userId);
-          await u.send("⏳ Aucun modérateur n'a pris ta demande. Réessaie plus tard.");
+          await u.send("⏳ Aucun modérateur n'a pris ta demande pour le moment. Réessaie plus tard, un modérateur te prendra en charge dès que possible.");
         } catch {}
       }
-      // edit message modo si possible
+      // edit message modo : précise pas claim + bouton Prêt
       try {
         const ch = await client.channels.fetch(data.modChannelId).catch(()=>null);
         if (ch) {
           const msg = await ch.messages.fetch(data.modMessageId).catch(()=>null);
           if (msg) {
+            const baseDesc = msg.embeds[0]?.description || "";
             const timeoutEmbed = new EmbedBuilder()
               .setTitle(msg.embeds[0]?.title || "Demande expirée")
-              .setDescription((msg.embeds[0]?.description || "") + "\n\n⏳ **Non claim après 15 min — utilisateur notifié**")
+              .setDescription(baseDesc + "\n\n⏳ **Non claim après 15 min — Aucun modérateur n'a pris la demande**\n*Utilisateur notifié : réessaie plus tard*")
               .setColor(0x808080)
               .setTimestamp();
-            await msg.edit({ embeds: [timeoutEmbed], components: [] }).catch(()=>{});
+            const pretRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId(`pret_${data.originGuildId}_${data.userId}`).setLabel("✅ Prêt — Notifier l'utilisateur").setStyle(ButtonStyle.Success).setEmoji("👋")
+            );
+            await msg.edit({ embeds: [timeoutEmbed], components: [pretRow] }).catch(()=>{});
+            // garde le pending pour le bouton Prêt (ne pas delete)
+            data.timedOut = true;
+            pending.set(key, data);
+            continue; // ne pas delete, garde pour Prêt
           }
         }
       } catch {}
@@ -1053,6 +1061,42 @@ client.on("interactionCreate", async (i) => {
       await i.reply({ content: isValidated ? "✅ Validé." : "❌ Échoué.", flags: MessageFlags.Ephemeral }).catch(() => {});
     }
     setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("pret_")) {
+    const [, originGuildId, userId] = i.customId.split("_");
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (!data) {
+      await i.reply({ content: "Demande expirée ou déjà traitée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const isTg = originGuildId === "tg";
+    const guildName = isTg ? "Telegram" : (await client.guilds.fetch(originGuildId).catch(()=>({name:"le serveur"}))).name;
+    const niceMsg = `✅ **Bonne nouvelle !**\n\nUn modérateur est enfin disponible pour votre vérification sur **${guildName}**.\nMerci de patienter, il va prendre en charge votre demande dans quelques instants et vous guider pour finaliser votre vérification.\n\nRestez à l'écoute !`;
+    try {
+      if (isTg) {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, niceMsg);
+      } else {
+        const u = await client.users.fetch(userId);
+        await u.send(niceMsg);
+      }
+      await i.reply({ content: `✅ Utilisateur <@${userId}> notifié qu'un modérateur est prêt.`, flags: MessageFlags.Ephemeral });
+    } catch (e) {
+      await i.reply({ content: `❌ Erreur envoi DM: ${e.message}`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    // restaure le bouton Claim pour que le modo puisse claim
+    try {
+      const ch = await client.channels.fetch(data.modChannelId);
+      const msg = await ch.messages.fetch(data.modMessageId);
+      const embed = msg.embeds[0];
+      const newEmbed = EmbedBuilder.from(embed).setColor(0x57f287).setDescription((embed.description || "") + `\n\n✅ **Prêt** par <@${i.user.id}> — utilisateur notifié`);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`claim_${originGuildId}_${userId}`).setLabel("Claim").setStyle(ButtonStyle.Secondary)
+      );
+      await msg.edit({ embeds: [newEmbed], components: [row] });
+    } catch {}
     return;
   }
   if (i.isButton() && (i.customId.startsWith("code_ok_") || i.customId.startsWith("code_bad_"))) {
