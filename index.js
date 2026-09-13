@@ -304,11 +304,11 @@ client.on("interactionCreate", async (i) => {
       )
       .setFooter({ text: `Demandé par ${i.user.tag}` , iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
-    await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await i.reply({ embeds: [embed] });
     return;
   }
   if (i.isChatInputCommand() && i.commandName === "classement") {
-    await i.deferReply({ flags: MessageFlags.Ephemeral });
+    await i.deferReply();
     if (!stats.staff) stats.staff = {};
     let guild = null;
     try { guild = await client.guilds.fetch(MOD_GUILD_ID); } catch { guild = i.guild; }
@@ -369,7 +369,7 @@ client.on("interactionCreate", async (i) => {
     if (!stats.staff) stats.staff = {};
     const s = stats.staff[target.id];
     if (!s) {
-      await i.reply({ content: `Aucun historique pour ${target.tag} (\`${target.id}\`).`, flags: MessageFlags.Ephemeral });
+      await i.reply({ content: `Aucun historique pour ${target.tag} (\`${target.id}\`).` });
       return;
     }
     const total = s.validated + s.failed;
@@ -395,7 +395,7 @@ client.on("interactionCreate", async (i) => {
       )
       .setFooter({ text: `Demandé par ${i.user.tag}`, iconURL: i.user.displayAvatarURL() })
       .setTimestamp();
-    await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await i.reply({ embeds: [embed] });
     return;
   }
   if (i.isButton() && i.customId.startsWith("classement_page_")) {
