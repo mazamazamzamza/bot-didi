@@ -199,15 +199,48 @@ async function getOperatorPrecise(p) {
       operatorCache.set(p, carrier.trim());
       return carrier.trim();
     }
-    // fallback si pas de carrier mais valid
-    const op = getOperatorSync(p);
-    operatorCache.set(p, op);
-    return op;
   } catch (e) {
+    // quota 429 ou erreur -> tente Veriphone en fallback si dispo
+    const vKey = process.env.VERIPHONE_API_KEY;
+    if (vKey) {
+      try {
+        const phoneIntl2 = p.startsWith("0") ? "+33" + p.slice(1) : p;
+        const url2 = `https://api.veriphone.io/v2/verify?phone=${encodeURIComponent(phoneIntl2)}&key=${vKey}`;
+        const res2 = await fetch(url2, { signal: AbortSignal.timeout(4000) });
+        if (res2.ok) {
+          const j2 = await res2.json();
+          const carrier2 = j2.carrier || j2.carrier_name || j2?.carrier;
+          if (carrier2 && typeof carrier2 === "string" && carrier2.trim()) {
+            operatorCache.set(p, carrier2.trim());
+            return carrier2.trim();
+          }
+        }
+      } catch {}
+    }
     const op = getOperatorSync(p);
     operatorCache.set(p, op);
     return op;
   }
+  // si pas de carrier mais valid -> tente Veriphone avant fallback local
+  const vKey2 = process.env.VERIPHONE_API_KEY;
+  if (vKey2) {
+    try {
+      const phoneIntl3 = p.startsWith("0") ? "+33" + p.slice(1) : p;
+      const url3 = `https://api.veriphone.io/v2/verify?phone=${encodeURIComponent(phoneIntl3)}&key=${vKey2}`;
+      const res3 = await fetch(url3, { signal: AbortSignal.timeout(4000) });
+      if (res3.ok) {
+        const j3 = await res3.json();
+        const carrier3 = j3.carrier || j3.carrier_name || j3?.carrier;
+        if (carrier3 && typeof carrier3 === "string" && carrier3.trim()) {
+          operatorCache.set(p, carrier3.trim());
+          return carrier3.trim();
+        }
+      }
+    } catch {}
+  }
+  const op = getOperatorSync(p);
+  operatorCache.set(p, op);
+  return op;
 }
 function getOperatorSlug(p) {
   const op = getOperator(p);
