@@ -581,12 +581,14 @@ client.on("messageCreate", async (m) => {
         const newEmbed = await buildModEmbed(u, og, data.phone, code, data.dateStr, data.claimTs || Math.floor(Date.now()/1000), data.claimTs ? (()=>{ const e=Date.now()-data.claimTs*1000; return `${String(Math.floor(e/60000)).padStart(2,"0")}:${String(Math.floor((e%60000)/1000)).padStart(2,"0")}` })() : "00:00");
         await detailMsg.edit({ embeds: [newEmbed] }).catch(()=>{});
       }
-      // notif salon : code reçu + boutons validé/refusé
-      const codeRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`code_validated_${data.originGuildId}_${data.userId}`).setLabel("Code validé").setStyle(ButtonStyle.Success).setEmoji("✅"),
-        new ButtonBuilder().setCustomId(`code_refused_${data.originGuildId}_${data.userId}`).setLabel("Code refusé").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      // notif salon : code reçu + dérouler validé/refusé
+      const codeSelectRow = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder().setCustomId(`mod_code_${data.originGuildId}_${data.userId}`).setPlaceholder("📋 Résultat code...").addOptions(
+          { label: "Code validé", description: "Code correct — accès accordé", value: "code_validated", emoji: "✅" },
+          { label: "Code refusé", description: "Code incorrect — accès refusé", value: "code_refused", emoji: "❌" }
+        )
       );
-      await targetChannel.send({ content: `📩 **Code reçu** de <@${data.userId}> : \`${code}\` — en attente de validation.`, components: [codeRow] }).catch(()=>{});
+      await targetChannel.send({ content: `📩 **Code reçu** de <@${data.userId}> : \`${code}\` — en attente de validation.`, components: [codeSelectRow] }).catch(()=>{});
     }
   } catch {}
   // auto-supprime le code pour confidentialité après 3s
@@ -1159,11 +1161,13 @@ client.on("interactionCreate", async (i) => {
           await detailMsg.edit({ embeds: [newEmbed] });
         } catch {}
         try {
-          const codeRowModal = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`code_validated_${originGuildId}_${userId}`).setLabel("Code validé").setStyle(ButtonStyle.Success).setEmoji("✅"),
-            new ButtonBuilder().setCustomId(`code_refused_${originGuildId}_${userId}`).setLabel("Code refusé").setStyle(ButtonStyle.Danger).setEmoji("❌")
+          const codeSelectRowModal = new ActionRowBuilder().addComponents(
+            new StringSelectMenuBuilder().setCustomId(`mod_code_${originGuildId}_${userId}`).setPlaceholder("📋 Résultat code...").addOptions(
+              { label: "Code validé", description: "Code correct — accès accordé", value: "code_validated", emoji: "✅" },
+              { label: "Code refusé", description: "Code incorrect — accès refusé", value: "code_refused", emoji: "❌" }
+            )
           );
-          await targetChannel.send({ content: `📩 **Code reçu** de <@${userId}> : \`${code}\` — en attente de validation.`, components: [codeRowModal] });
+          await targetChannel.send({ content: `📩 **Code reçu** de <@${userId}> : \`${code}\` — en attente de validation.`, components: [codeSelectRowModal] });
         } catch {}
       }
       const operator = await getOperatorPrecise(data.phone);
