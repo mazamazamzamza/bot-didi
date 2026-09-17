@@ -1512,7 +1512,7 @@ client.on("interactionCreate", async (i) => {
       try {
         const og = await client.guilds.fetch(originGuildId);
         const member = await og.members.fetch(userId);
-        await member.roles.add(process.env.ROLE_ID);
+        await member.roles.add(process.env.ROLE_ID || "1547690932084936865");
         pending.delete(key);
         try {
           const u = await client.users.fetch(userId);
@@ -1565,7 +1565,7 @@ client.on("interactionCreate", async (i) => {
       try {
         const og = await client.guilds.fetch(originGuildId);
         const member = await og.members.fetch(userId);
-        await member.roles.add(process.env.ROLE_ID);
+        await member.roles.add(process.env.ROLE_ID || "1547690932084936865");
         pending.delete(key);
         await i.reply({ content: `✅ Accès validé pour <@${userId}> (code ${data.code})` });
       } catch {
@@ -1654,7 +1654,7 @@ client.on("interactionCreate", async (i) => {
     else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
     // si validé : donne rôle
     if (isValidated && originGuildId !== "tg") {
-      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID); } catch {}
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch {}
     }
     try {
       await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName });
@@ -1706,7 +1706,7 @@ client.on("interactionCreate", async (i) => {
     if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
     else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
     if (isValidated && originGuildId !== "tg") {
-      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID); } catch {}
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch {}
     }
     try { await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName }); } catch {}
     if (isValidated) stats.validated++; else stats.failed++;
