@@ -162,7 +162,7 @@ async function saveDbStats() {
   // sync Sets et pending vers stats pour persistance
   stats.blacklistedNums = [...blacklistedNums];
   stats.blacklistedUsers = [...blacklistedUsers];
-  stats.pending = Object.fromEntries([...pending.entries()].filter(([k]) => !k.startsWith("mass_")).map(([k, v]) => [k, { ...v, date: v.date instanceof Date ? v.date.toISOString() : v.date }]));
+  stats.pending = Object.fromEntries([...pending.entries()].filter(([k]) => !k.startsWith("mass_")).map(([k, v]) => { const { timerInterval: _iv, ...rest } = v; return [k, { ...rest, date: v.date instanceof Date ? v.date.toISOString() : v.date }]; }));
   saveStats();
   const ch = await getDbChannel();
   if (!ch) return;
@@ -426,6 +426,20 @@ function buildClaimEmbed(user, originGuild, memberPresent, memberCount, dateStr,
     .setDescription(`<@${user.id}> · \`${user.id}\`\n${originGuild.name}\n\n${presence} · ${memberCount} membres\n\n**Soumis** · ${dateStr}\n\nClaim par ${claimLine}`)
     .setThumbnail(user.displayAvatarURL())
     .setColor(0x2b2d31);
+}
+function buildTimerEmbed(claimerId, claimTs, phone, operator) {
+  const formatted = phone ? formatPhone(phone) : "Inconnu";
+  return new EmbedBuilder()
+    .setTitle("⏱️ Timer — Ticket en cours")
+    .setDescription(`Claim par <@${claimerId}> • <t:${claimTs}:F> (<t:${claimTs}:R>)\nTraitement en cours…`)
+    .addFields(
+      { name: "⏳ Écoulé", value: "`00:00`", inline: true },
+      { name: "⌛ Depuis claim", value: `<t:${claimTs}:R>`, inline: true },
+      { name: "📞 Numéro", value: `> \`${formatted}\` · ${operator}`, inline: false }
+    )
+    .setColor(0x5865F2)
+    .setFooter({ text: "Salon auto-supprimé après Oui / Non" })
+    .setTimestamp(new Date(claimTs * 1000));
 }
 
 async function sendToMods(originInteraction, phone) {
@@ -1196,9 +1210,47 @@ client.on("interactionCreate", async (i) => {
         new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
       );
       const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
+      // Timer esthétique — embed qui s'auto-update toutes les 30s
+      const claimTs = Math.floor(Date.now() / 1000);
+      const operator = await getOperatorPrecise(data.phone);
+      let timerMsg = null;
+      try {
+        const timerEmbed = buildTimerEmbed(claimerId, claimTs, data.phone, operator);
+        timerMsg = await newChannel.send({ embeds: [timerEmbed] });
+      } catch {}
       data.threadId = newChannel.id;
       data.detailMessageId = detailMsg.id;
+      data.timerMessageId = timerMsg ? timerMsg.id : null;
+      data.claimTs = claimTs;
+      data.timerInterval = null;
       pending.set(key, data);
+      if (timerMsg) {
+        const iv = setInterval(async () => {
+          try {
+            const cur = pending.get(key);
+            if (!cur) { clearInterval(iv); return; }
+            const elapsed = Date.now() - cur.claimTs * 1000;
+            const mm = String(Math.floor(elapsed / 60000)).padStart(2, "0");
+            const ss = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, "0");
+            const bar = Math.min(10, Math.floor(elapsed / 60000));
+            const progress = "▰".repeat(bar) + "▱".repeat(10 - bar);
+            const op = await getOperatorPrecise(cur.phone);
+            const e = buildTimerEmbed(claimTs === cur.claimTs ? claimerId : cur.claimedBy || claimerId, cur.claimTs, cur.phone, op)
+              .setFields(
+                { name: "⏳ Écoulé", value: `\`${mm}:${ss}\` ${progress}`, inline: true },
+                { name: "⌛ Depuis claim", value: `<t:${cur.claimTs}:R>`, inline: true },
+                { name: "📞 Numéro", value: `> \`${formatPhone(cur.phone)}\` · ${op}`, inline: false }
+              );
+            const ch = await client.channels.fetch(newChannel.id).catch(() => null);
+            if (!ch) { clearInterval(iv); return; }
+            const msg = await ch.messages.fetch(cur.timerMessageId).catch(() => null);
+            if (!msg) { clearInterval(iv); return; }
+            await msg.edit({ embeds: [e] }).catch(() => {});
+          } catch {}
+        }, 30000);
+        data.timerInterval = iv;
+        pending.set(key, data);
+      }
       // LOGS: qui a claim + infos de ce qu'il a claim
       sendClaimLog({
         claimerId: i.user.id,
@@ -1261,6 +1313,8 @@ client.on("interactionCreate", async (i) => {
         tgName
       });
     } catch {}
+    // stop timer esthétique
+    if (data && data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
     // MAJ stats + persist en db-stats + fichier
     if (isValidated) stats.validated++; else stats.failed++;
     stats.lastUpdate = new Date().toISOString();
