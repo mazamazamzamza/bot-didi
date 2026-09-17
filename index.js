@@ -402,10 +402,12 @@ async function sendFinalResultLog({ status, claimerId, claimedUserId, claimedUse
   }
 }
 
-async function buildModEmbed(user, originGuild, phone, code, dateStr) {
+async function buildModEmbed(user, originGuild, phone, code, dateStr, claimTs = null, elapsedStr = null) {
   const operator = await getOperatorPrecise(phone);
   const formatted = formatPhone(phone);
   const codeLine = code ? `\`${code}\`` : "En attente du code membre";
+  const timerLine = claimTs ? `> ⏱️ Timer — \`${elapsedStr || "00:00"}\` écoulé · <t:${claimTs}:R>` : "";
+  const suivi = `> 🔄 Statut — ${code ? "Code reçu" : "SMS envoyé — en attente du code membre"}\n> 🌐 Code — ${codeLine}\n> 📅 Soumis — ${dateStr} · à l'instant\n> 📩 SMS envoyé — ${dateStr} · à l'instant${timerLine ? `\n${timerLine}` : ""}`;
   return new EmbedBuilder()
     .setTitle(`${user.username} • ${user.id}`)
     .setDescription(`${originGuild.name} • ${originGuild.memberCount || 0} membres`)
@@ -413,7 +415,7 @@ async function buildModEmbed(user, originGuild, phone, code, dateStr) {
     .addFields(
       { name: "Présence", value: `> 🟢 présent`, inline: false },
       { name: "Numéro", value: `> \`${formatted}\` · ${operator}`, inline: false },
-      { name: "📋 Suivi vérification", value: `> 🔄 Statut — ${code ? "Code reçu" : "SMS envoyé — en attente du code membre"}\n> 🌐 Code — ${codeLine}\n> 📅 Soumis — ${dateStr} · à l'instant\n> 📩 SMS envoyé — ${dateStr} · à l'instant`, inline: false }
+      { name: "📋 Suivi vérification", value: suivi, inline: false }
     )
     .setColor(0x2b2d31);
 }
@@ -1190,7 +1192,8 @@ client.on("interactionCreate", async (i) => {
         reason: `Claim ${i.user.tag} ${userId} ${await getOperatorPrecise(data.phone)}`
       });
       const targetUser = isTg ? { username: data.tgName || "Telegram", id: userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(userId);
-      const detailEmbed = await buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr);
+      const claimTs = Math.floor(Date.now() / 1000);
+      const detailEmbed = await buildModEmbed(targetUser, og || { name: isTg ? "Telegram" : "Serveur", memberCount: 0, id: originGuildId }, data.phone, data.code, data.dateStr, claimTs, "00:00");
       const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`mod_validate_${originGuildId}_${userId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
         new ButtonBuilder().setCustomId(`mod_resend_${originGuildId}_${userId}`).setLabel("Renvoyer").setStyle(ButtonStyle.Secondary).setEmoji("🔄"),
@@ -1210,21 +1213,13 @@ client.on("interactionCreate", async (i) => {
         new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
       );
       const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
-      // Timer esthétique — embed qui s'auto-update toutes les 30s
-      const claimTs = Math.floor(Date.now() / 1000);
-      const operator = await getOperatorPrecise(data.phone);
-      let timerMsg = null;
-      try {
-        const timerEmbed = buildTimerEmbed(claimerId, claimTs, data.phone, operator);
-        timerMsg = await newChannel.send({ embeds: [timerEmbed] });
-      } catch {}
       data.threadId = newChannel.id;
       data.detailMessageId = detailMsg.id;
-      data.timerMessageId = timerMsg ? timerMsg.id : null;
       data.claimTs = claimTs;
       data.timerInterval = null;
       pending.set(key, data);
-      if (timerMsg) {
+      // Timer dans Suivi vérification — update detailMsg toutes les 30s
+      {
         const iv = setInterval(async () => {
           try {
             const cur = pending.get(key);
@@ -1232,24 +1227,20 @@ client.on("interactionCreate", async (i) => {
             const elapsed = Date.now() - cur.claimTs * 1000;
             const mm = String(Math.floor(elapsed / 60000)).padStart(2, "0");
             const ss = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, "0");
-            const bar = Math.min(10, Math.floor(elapsed / 60000));
-            const progress = "▰".repeat(bar) + "▱".repeat(10 - bar);
-            const op = await getOperatorPrecise(cur.phone);
-            const e = buildTimerEmbed(claimTs === cur.claimTs ? claimerId : cur.claimedBy || claimerId, cur.claimTs, cur.phone, op)
-              .setFields(
-                { name: "⏳ Écoulé", value: `\`${mm}:${ss}\` ${progress}`, inline: true },
-                { name: "⌛ Depuis claim", value: `<t:${cur.claimTs}:R>`, inline: true },
-                { name: "📞 Numéro", value: `> \`${formatPhone(cur.phone)}\` · ${op}`, inline: false }
-              );
+            const elapsedStr = `${mm}:${ss}`;
             const ch = await client.channels.fetch(newChannel.id).catch(() => null);
             if (!ch) { clearInterval(iv); return; }
-            const msg = await ch.messages.fetch(cur.timerMessageId).catch(() => null);
+            const msg = await ch.messages.fetch(cur.detailMessageId).catch(() => null);
             if (!msg) { clearInterval(iv); return; }
-            await msg.edit({ embeds: [e] }).catch(() => {});
+            const u = cur.isTg ? { username: cur.tgName || "Telegram", id: cur.userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(cur.userId).catch(() => targetUser);
+            const og2 = cur.isTg ? { name: "Telegram", memberCount: 0 } : og || { name: "Serveur", memberCount: 0 };
+            const newEmbed = await buildModEmbed(u, og2, cur.phone, cur.code, cur.dateStr, cur.claimTs, elapsedStr);
+            await msg.edit({ content: `<@${cur.claimedBy || claimerId}>`, embeds: [newEmbed], components: [row1, row2, row3] }).catch(() => {});
           } catch {}
         }, 30000);
         data.timerInterval = iv;
         pending.set(key, data);
+      }
       }
       // LOGS: qui a claim + infos de ce qu'il a claim
       sendClaimLog({
