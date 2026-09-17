@@ -1241,7 +1241,6 @@ client.on("interactionCreate", async (i) => {
         data.timerInterval = iv;
         pending.set(key, data);
       }
-      }
       // LOGS: qui a claim + infos de ce qu'il a claim
       sendClaimLog({
         claimerId: i.user.id,
