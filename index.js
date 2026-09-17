@@ -539,24 +539,27 @@ client.on("messageCreate", async (m) => {
   if (m.author.bot) return;
   const code = m.content.trim();
   if (!/^\d{4}$/.test(code)) return;
-  // trouve pending correspondant : DM (userId) ou salon verif (threadId)
-  let found = null;
+  // trouve pending correspondant : DM (userId) ou salon verif (threadId) — prend le plus récent avec thread
+  let candidates = [];
   for (const [k, v] of pending.entries()) {
-    if (v.userId === m.author.id) { found = [k, v]; break; }
+    if (v.userId === m.author.id) candidates.push([k, v]);
     if (v.threadId && m.channel.id === v.threadId) {
-      // message dans salon privé — vérifie que l'auteur est le membre en vérif
-      if (v.userId === m.author.id || m.author.id === v.claimedBy) { found = [k, v]; break; }
+      if (v.userId === m.author.id || m.author.id === v.claimedBy) candidates = [[k, v]];
     }
   }
-  if (!found) {
-    // aussi cherche en DM : si DM channel et code 4 chiffres, match tout pending de cet user
-    if (!m.guild) {
-      for (const [k, v] of pending.entries()) {
-        if (v.userId === m.author.id) { found = [k, v]; break; }
-      }
-    }
-    if (!found) return;
+  let found = null;
+  if (candidates.length) {
+    // priorise celui avec threadId + le plus récent
+    candidates.sort((a,b) => {
+      const av = a[1].threadId ? 1 : 0, bv = b[1].threadId ? 1 : 0;
+      if (av !== bv) return bv - av;
+      const ad = a[1].date ? new Date(a[1].date).getTime() : a[1].claimTs ? a[1].claimTs*1000 : 0;
+      const bd = b[1].date ? new Date(b[1].date).getTime() : b[1].claimTs ? b[1].claimTs*1000 : 0;
+      return bd - ad;
+    });
+    found = candidates[0];
   }
+  if (!found) return;
   const [key, data] = found;
   const originGuildId = data.originGuildId;
   // évite double code
