@@ -1653,8 +1653,9 @@ client.on("interactionCreate", async (i) => {
     if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
     else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
     // si validé : donne rôle
+    let roleError = null;
     if (isValidated && originGuildId !== "tg") {
-      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch {}
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch (e) { roleError = e.message; console.error("role add fail:", e.message); }
     }
     try {
       await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName });
@@ -1672,7 +1673,7 @@ client.on("interactionCreate", async (i) => {
     s.tag = i.user.tag;
     saveDbStats().catch(() => saveStats());
     pending.delete(key);
-    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.${roleError ? `\n⚠️ Rôle non ajouté: ${roleError}` : ""}` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? `✅ Code validé.${roleError ? ` ⚠️ Rôle: ${roleError}` : ""}` : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     // notif user — différencié Discord (accès serveur) / Telegram (code validé)
     try {
       if (originGuildId === "tg") {
@@ -1681,7 +1682,7 @@ client.on("interactionCreate", async (i) => {
         const u = await client.users.fetch(userId).catch(()=>null);
         if (u) {
           if (isValidated) {
-            const accessEmbed = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉`).setColor(0x57f287).setTimestamp();
+            const accessEmbed = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉${roleError ? `\n\n⚠️ Rôle non ajouté côté serveur: ${roleError}` : ""}`).setColor(0x57f287).setTimestamp();
             await u.send({ embeds: [accessEmbed] }).catch(()=>{});
           } else {
             await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
@@ -1705,8 +1706,9 @@ client.on("interactionCreate", async (i) => {
     let claimedTag = "";
     if (originGuildId === "tg") originGuild = { id: "tg", name: "Telegram" };
     else { try { originGuild = await client.guilds.fetch(originGuildId); } catch { originGuild = { id: originGuildId, name: "Serveur" }; } try { const u = await client.users.fetch(userId); claimedTag = u.username; } catch {} }
+    let roleError2 = null;
     if (isValidated && originGuildId !== "tg") {
-      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch {}
+      try { const og = await client.guilds.fetch(originGuildId); const member = await og.members.fetch(userId); await member.roles.add(process.env.ROLE_ID || "1547690932084936865"); } catch (e) { roleError2 = e.message; console.error("role add fail2:", e.message); }
     }
     try { await sendFinalResultLog({ status: isValidated ? "validated" : "failed", claimerId, claimedUserId: userId, claimedUserTag: claimedTag, phone: data.phone || "Inconnu", originGuild: originGuild || { id: originGuildId, name: "Inconnu" }, tgName: data.tgName }); } catch {}
     if (isValidated) stats.validated++; else stats.failed++;
@@ -1722,7 +1724,7 @@ client.on("interactionCreate", async (i) => {
     s2.tag = i.user.tag;
     saveDbStats().catch(() => saveStats());
     pending.delete(key);
-    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
+    try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.${roleError2 ? `\n⚠️ Rôle non ajouté: ${roleError2}` : ""}` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? `✅ Code validé.${roleError2 ? ` ⚠️ Rôle: ${roleError2}` : ""}` : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     try {
       if (originGuildId === "tg") {
         if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
@@ -1730,7 +1732,7 @@ client.on("interactionCreate", async (i) => {
         const u = await client.users.fetch(userId).catch(()=>null);
         if (u) {
           if (isValidated) {
-            const accessEmbed2 = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉`).setColor(0x57f287).setTimestamp();
+            const accessEmbed2 = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉${roleError2 ? `\n\n⚠️ Rôle non ajouté: ${roleError2}` : ""}`).setColor(0x57f287).setTimestamp();
             await u.send({ embeds: [accessEmbed2] }).catch(()=>{});
           } else {
             await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
