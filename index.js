@@ -578,6 +578,8 @@ client.on("messageCreate", async (m) => {
         const newEmbed = await buildModEmbed(u, og, data.phone, code, data.dateStr, data.claimTs || Math.floor(Date.now()/1000), data.claimTs ? (()=>{ const e=Date.now()-data.claimTs*1000; return `${String(Math.floor(e/60000)).padStart(2,"0")}:${String(Math.floor((e%60000)/1000)).padStart(2,"0")}` })() : "00:00");
         await detailMsg.edit({ embeds: [newEmbed] }).catch(()=>{});
       }
+      // notif salon : code reçu
+      await targetChannel.send({ content: `📩 **Code reçu** de <@${data.userId}> : \`${code}\` — en attente de validation.` }).catch(()=>{});
     }
   } catch {}
   // auto-supprime le code pour confidentialité après 3s
@@ -1149,6 +1151,7 @@ client.on("interactionCreate", async (i) => {
           const newEmbed = await buildModEmbed(i.user, og || { name: "Serveur", memberCount: 0, id: originGuildId }, data.phone, code, data.dateStr);
           await detailMsg.edit({ embeds: [newEmbed] });
         } catch {}
+        try { await targetChannel.send({ content: `📩 **Code reçu** de <@${userId}> : \`${code}\` — en attente de validation.` }); } catch {}
       }
       const operator = await getOperatorPrecise(data.phone);
       const formatted = formatPhone(data.phone);
