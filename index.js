@@ -1280,15 +1280,9 @@ client.on("interactionCreate", async (i) => {
         )
       );
       const row3 = new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId(`mod_code_${originGuildId}_${userId}`).setPlaceholder("📋 Résultat code...").addOptions(
-          { label: "Code validé", description: "Code correct — accès accordé", value: "code_validated", emoji: "✅" },
-          { label: "Code refusé", description: "Code incorrect — accès refusé", value: "code_refused", emoji: "❌" }
-        )
-      );
-      const row4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`close_${originGuildId}_${userId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
       );
-      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3, row4] });
+      const detailMsg = await newChannel.send({ content: `<@${claimerId}>`, embeds: [detailEmbed], components: [row1, row2, row3] });
       data.threadId = newChannel.id;
       data.detailMessageId = detailMsg.id;
       data.claimTs = claimTs;
@@ -1311,7 +1305,7 @@ client.on("interactionCreate", async (i) => {
             const u = cur.isTg ? { username: cur.tgName || "Telegram", id: cur.userId, displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png" } : await client.users.fetch(cur.userId).catch(() => targetUser);
             const og2 = cur.isTg ? { name: "Telegram", memberCount: 0 } : og || { name: "Serveur", memberCount: 0 };
             const newEmbed = await buildModEmbed(u, og2, cur.phone, cur.code, cur.dateStr, cur.claimTs, elapsedStr);
-            await msg.edit({ content: `<@${cur.claimedBy || claimerId}>`, embeds: [newEmbed], components: [row1, row2, row3, row4] }).catch(() => {});
+            await msg.edit({ content: `<@${cur.claimedBy || claimerId}>`, embeds: [newEmbed], components: [row1, row2, row3] }).catch(() => {});
           } catch {}
         }, 30000);
         data.timerInterval = iv;
