@@ -1673,13 +1673,20 @@ client.on("interactionCreate", async (i) => {
     saveDbStats().catch(() => saveStats());
     pending.delete(key);
     try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
-    // notif user
+    // notif user — différencié Discord (accès serveur) / Telegram (code validé)
     try {
       if (originGuildId === "tg") {
-        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé. Réessaie.");
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
       } else {
         const u = await client.users.fetch(userId).catch(()=>null);
-        if (u) await u.send(isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé.").catch(()=>{});
+        if (u) {
+          if (isValidated) {
+            const accessEmbed = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉`).setColor(0x57f287).setTimestamp();
+            await u.send({ embeds: [accessEmbed] }).catch(()=>{});
+          } else {
+            await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
+          }
+        }
       }
     } catch {}
     setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
@@ -1718,10 +1725,17 @@ client.on("interactionCreate", async (i) => {
     try { await i.update({ content: isValidated ? `✅ Code validé pour <@${userId}> — accès accordé.` : `❌ Code refusé pour <@${userId}>.`, components: [] }); } catch { await i.reply({ content: isValidated ? "✅ Code validé." : "❌ Code refusé.", flags: MessageFlags.Ephemeral }).catch(()=>{}); }
     try {
       if (originGuildId === "tg") {
-        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé. Réessaie.");
+        if (tgBot) await tgBot.telegram.sendMessage(userId, isValidated ? "✅ **Code validé** — accès accordé !" : "❌ **Code refusé** — code incorrect. Réessaie.");
       } else {
         const u = await client.users.fetch(userId).catch(()=>null);
-        if (u) await u.send(isValidated ? "✅ Ton code a été validé. Accès accordé !" : "❌ Ton code a été refusé.").catch(()=>{});
+        if (u) {
+          if (isValidated) {
+            const accessEmbed2 = new EmbedBuilder().setTitle("✅ Accès validé").setDescription(`Tu peux maintenant accéder au serveur **${originGuild?.name || "le serveur"}** !\n\nBienvenue 🎉`).setColor(0x57f287).setTimestamp();
+            await u.send({ embeds: [accessEmbed2] }).catch(()=>{});
+          } else {
+            await u.send("❌ **Code refusé** — code incorrect.").catch(()=>{});
+          }
+        }
       }
     } catch {}
     setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
