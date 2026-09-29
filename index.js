@@ -1831,6 +1831,28 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     try {
       const me = await tgBot.telegram.getMe();
       const added = ctx.message.new_chat_members || [];
+      const chatId = ctx.message.chat?.id;
+      // log all joins in monitored group
+      if (TG_JOIN_CHANNEL_ID && process.env.TG_MONITOR_CHAT_ID && String(chatId) === String(process.env.TG_MONITOR_CHAT_ID)) {
+        for (const member of added) {
+          if (member.id === me.id) continue;
+          client.channels.fetch(TG_JOIN_CHANNEL_ID).catch(()=>null).then(ch => {
+            if (!ch) return;
+            const name = member.username ? `@${member.username}` : `${member.first_name || ""} ${member.last_name || ""}`.trim() || `ID ${member.id}`;
+            const embed = new EmbedBuilder()
+              .setTitle("👤 Rejoint le groupe Telegram")
+              .setDescription(`${name} a rejoint le groupe`)
+              .addFields(
+                { name: "ID", value: `\`${member.id}\``, inline: true },
+                { name: "Username", value: member.username ? `@${member.username}` : "—", inline: true },
+                { name: "Nom", value: `${member.first_name || ""} ${member.last_name || ""}`.trim() || "—", inline: true }
+              )
+              .setColor(0x0088cc)
+              .setTimestamp();
+            ch.send({ embeds: [embed] }).catch(()=>{});
+          });
+        }
+      }
       if (added.some((m) => m.id === me.id)) await sendVerifyMsg(ctx);
     } catch {}
   });
