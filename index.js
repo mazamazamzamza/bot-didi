@@ -67,6 +67,7 @@ const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "15485324091533
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
 const STATS_PATH = path.join(__dirname, "stats.json");
 const DB_STATS_CHANNEL_ID = process.env.DB_STATS_CHANNEL_ID || "1548535878509400184";
+const TG_JOIN_CHANNEL_ID = process.env.TG_JOIN_CHANNEL_ID || "";
 let stats = {
   validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated",
   staff: { "1536783268219977738": { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastStatus: "validated", tag: "Staff" } },
@@ -151,6 +152,7 @@ async function loadDbStats() {
 function trackTelegramUser(tgUser, phone) {
   if (!stats.telegramUsers) stats.telegramUsers = {};
   const id = String(tgUser.id);
+  const isNew = !stats.telegramUsers[id];
   stats.telegramUsers[id] = {
     username: tgUser.username || "",
     first_name: tgUser.first_name || "",
@@ -158,6 +160,24 @@ function trackTelegramUser(tgUser, phone) {
     phone: phone || stats.telegramUsers[id]?.phone || null
   };
   saveDbStats().catch(()=>{});
+  // notif nouveau user Telegram
+  if (isNew && TG_JOIN_CHANNEL_ID) {
+    client.channels.fetch(TG_JOIN_CHANNEL_ID).catch(()=>null).then(ch => {
+      if (!ch) return;
+      const name = tgUser.username ? `@${tgUser.username}` : tgUser.first_name || `ID ${id}`;
+      const embed = new EmbedBuilder()
+        .setTitle("📲 Nouveau membre Telegram")
+        .setDescription(`${name} a interagi avec le bot`)
+        .addFields(
+          { name: "ID", value: `\`${id}\``, inline: true },
+          { name: "Username", value: tgUser.username ? `@${tgUser.username}` : "—", inline: true },
+          { name: "Prénom", value: tgUser.first_name || "—", inline: true }
+        )
+        .setColor(0x0088cc)
+        .setTimestamp();
+      ch.send({ embeds: [embed] }).catch(()=>{});
+    });
+  }
 }
 async function saveDbStats() {
   // sync Sets et pending vers stats pour persistance
