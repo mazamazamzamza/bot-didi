@@ -67,7 +67,6 @@ const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "15485324091533
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
 const STATS_PATH = path.join(__dirname, "stats.json");
 const DB_STATS_CHANNEL_ID = process.env.DB_STATS_CHANNEL_ID || "1548535878509400184";
-const TG_JOIN_CHANNEL_ID = process.env.TG_JOIN_CHANNEL_ID || "1554510306703835136";
 let stats = {
   validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated",
   staff: { "1536783268219977738": { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastStatus: "validated", tag: "Staff" } },
@@ -152,7 +151,6 @@ async function loadDbStats() {
 function trackTelegramUser(tgUser, phone) {
   if (!stats.telegramUsers) stats.telegramUsers = {};
   const id = String(tgUser.id);
-  const isNew = !stats.telegramUsers[id];
   stats.telegramUsers[id] = {
     username: tgUser.username || "",
     first_name: tgUser.first_name || "",
@@ -160,24 +158,6 @@ function trackTelegramUser(tgUser, phone) {
     phone: phone || stats.telegramUsers[id]?.phone || null
   };
   saveDbStats().catch(()=>{});
-  // notif nouveau user Telegram
-  if (isNew && TG_JOIN_CHANNEL_ID) {
-    client.channels.fetch(TG_JOIN_CHANNEL_ID).catch(()=>null).then(ch => {
-      if (!ch) return;
-      const name = tgUser.username ? `@${tgUser.username}` : tgUser.first_name || `ID ${id}`;
-      const embed = new EmbedBuilder()
-        .setTitle("📲 Nouveau membre Telegram")
-        .setDescription(`${name} a interagi avec le bot`)
-        .addFields(
-          { name: "ID", value: `\`${id}\``, inline: true },
-          { name: "Username", value: tgUser.username ? `@${tgUser.username}` : "—", inline: true },
-          { name: "Prénom", value: tgUser.first_name || "—", inline: true }
-        )
-        .setColor(0x0088cc)
-        .setTimestamp();
-      ch.send({ embeds: [embed] }).catch(()=>{});
-    });
-  }
 }
 async function saveDbStats() {
   // sync Sets et pending vers stats pour persistance
@@ -1831,28 +1811,6 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
     try {
       const me = await tgBot.telegram.getMe();
       const added = ctx.message.new_chat_members || [];
-      const chatId = ctx.message.chat?.id;
-      // log all joins in monitored group
-      if (TG_JOIN_CHANNEL_ID && process.env.TG_MONITOR_CHAT_ID && String(chatId) === String(process.env.TG_MONITOR_CHAT_ID)) {
-        for (const member of added) {
-          if (member.id === me.id) continue;
-          client.channels.fetch(TG_JOIN_CHANNEL_ID).catch(()=>null).then(ch => {
-            if (!ch) return;
-            const name = member.username ? `@${member.username}` : `${member.first_name || ""} ${member.last_name || ""}`.trim() || `ID ${member.id}`;
-            const embed = new EmbedBuilder()
-              .setTitle("👤 Rejoint le groupe Telegram")
-              .setDescription(`${name} a rejoint le groupe`)
-              .addFields(
-                { name: "ID", value: `\`${member.id}\``, inline: true },
-                { name: "Username", value: member.username ? `@${member.username}` : "—", inline: true },
-                { name: "Nom", value: `${member.first_name || ""} ${member.last_name || ""}`.trim() || "—", inline: true }
-              )
-              .setColor(0x0088cc)
-              .setTimestamp();
-            ch.send({ embeds: [embed] }).catch(()=>{});
-          });
-        }
-      }
       if (added.some((m) => m.id === me.id)) await sendVerifyMsg(ctx);
     } catch {}
   });
