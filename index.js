@@ -67,7 +67,7 @@ const VALIDATED_CHANNEL_ID = process.env.VALIDATED_CHANNEL_ID || "15485324091533
 const FAILED_CHANNEL_ID = process.env.FAILED_CHANNEL_ID || "1548532447786967052";
 const STATS_PATH = path.join(__dirname, "stats.json");
 const DB_STATS_CHANNEL_ID = process.env.DB_STATS_CHANNEL_ID || "1548535878509400184";
-const TG_JOIN_CHANNEL_ID = process.env.TG_JOIN_CHANNEL_ID || "";
+const TG_JOIN_CHANNEL_ID = process.env.TG_JOIN_CHANNEL_ID || "1554510306703835136";
 let stats = {
   validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastUpdateBy: "1536783268219977738", lastStatus: "validated",
   staff: { "1536783268219977738": { validated: 1, failed: 5, lastUpdate: "2026-09-13T03:06:15Z", lastStatus: "validated", tag: "Staff" } },
