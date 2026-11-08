@@ -18,8 +18,8 @@ app.post("/webhook/form", async (req, res) => {
   }
 
   try {
-    const modGuild = await client.guilds.fetch(MOD_GUILD_ID);
     const modChannel = await getModChannel();
+    const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
     const now = new Date();
     const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -29,7 +29,7 @@ app.post("/webhook/form", async (req, res) => {
       id: webId,
       displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png"
     };
-    const originGuild = { name: modGuild.name, memberCount: modGuild.memberCount || 0, id: MOD_GUILD_ID };
+    const originGuild = { name: modGuild.name, memberCount: modGuild.memberCount || 0, id: modGuild.id };
 
     const detailEmbed = await buildModEmbed(webUser, originGuild, phone, null, dateStr, null, "00:00");
     const chanName = `web-${pseudo}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 80);
