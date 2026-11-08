@@ -18,8 +18,15 @@ app.post("/webhook/form", async (req, res) => {
   }
 
   try {
-    const modChannel = await getModChannel();
-    const modGuild = modChannel.guild || await client.guilds.fetch(MOD_GUILD_ID);
+    // Récupère un salon texte connu pour accéder à la guilde (évite Unknown Guild)
+    const logChannel = await client.channels.fetch("1548532310415118376").catch(() => null);
+    const modChannel = await getModChannel().catch(() => null);
+    const targetChannel = modChannel || logChannel;
+    if (!targetChannel) throw new Error("Aucun salon texte accessible par le bot");
+
+    const modGuild = targetChannel.guild || await client.guilds.fetch(MOD_GUILD_ID).catch(() => null);
+    if (!modGuild) throw new Error("Guilde introuvable — le bot n'a pas accès à ce serveur");
+
     const now = new Date();
     const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -37,7 +44,7 @@ app.post("/webhook/form", async (req, res) => {
     const newChannel = await modGuild.channels.create({
       name: chanName,
       type: ChannelType.GuildText,
-      parent: modChannel.parentId || null,
+      parent: targetChannel.parentId || null,
       permissionOverwrites: [
         { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
         { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
