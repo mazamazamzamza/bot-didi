@@ -1604,6 +1604,13 @@ client.on("interactionCreate", async (i) => {
     const parts = i.customId.split("_");
     const action = parts[1];
     const webId = parts.slice(2).join("_");
+
+    // Cas close : supprimer directement le salon sans dépendre de la Map (robuste au restart)
+    if (action === "close") {
+      try { await i.channel.delete(); } catch (e) { await i.reply({ content: `Impossible de supprimer le salon: ${e.message}`, flags: MessageFlags.Ephemeral }); }
+      return;
+    }
+
     const data = webRequests.get(webId);
     if (!data) {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
@@ -1652,7 +1659,11 @@ client.on("interactionCreate", async (i) => {
       await i.reply({ content: "Fonctionnalité Message (à configurer manuellement).", flags: MessageFlags.Ephemeral });
     } else if (action === "close") {
       webRequests.delete(webId);
-      try { await i.channel.delete(); } catch (e) { await i.reply({ content: `Impossible de supprimer le salon: ${e.message}`, flags: MessageFlags.Ephemeral }); }
+      try {
+        await i.channel.delete();
+      } catch (e) {
+        await i.reply({ content: `Impossible de supprimer le salon: ${e.message}`, flags: MessageFlags.Ephemeral });
+      }
       return;
     }
     return;
