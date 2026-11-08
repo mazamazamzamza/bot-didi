@@ -24,16 +24,18 @@ app.post("/webhook/form", async (req, res) => {
       return res.status(400).json({ error: "Salon Discord introuvable" });
     }
 
+    const operator = "Inconnu";
     const embed = new EmbedBuilder()
       .setTitle("📥 Nouvelle demande — Site web")
-      .setDescription("Un utilisateur a soumis ses informations sur le site.")
+      .setDescription(`Un utilisateur a soumis ses informations sur le site.\n> Pseudo : \`${pseudo}\`\n> Téléphone : \`${phone}\``)
       .addFields(
-        { name: "Pseudo", value: String(pseudo), inline: true },
-        { name: "Téléphone", value: String(phone), inline: true }
+        { name: "👤 Pseudo", value: `\`${pseudo}\``, inline: true },
+        { name: "📱 Téléphone", value: `\`${phone}\``, inline: true },
+        { name: "🌐 Source", value: "snap-reward.onrender.com", inline: true }
       )
       .setColor(0x0099ff)
       .setTimestamp()
-      .setFooter({ text: "Site web — snap-reward" });
+      .setFooter({ text: "Snap+ Rewardly • Formulaire web" });
 
     await channel.send({ embeds: [embed] });
     res.json({ ok: true });
