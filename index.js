@@ -41,7 +41,7 @@ app.post("/webhook/form", async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error("Erreur envoi embed webhook:", e.message);
-    res.status(500).json({ error: "Erreur Discord" });
+    res.status(500).json({ error: "Erreur Discord: " + e.message });
   }
 });
 
