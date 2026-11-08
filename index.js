@@ -17,43 +17,50 @@ app.post("/webhook/form", async (req, res) => {
     return res.status(400).json({ error: "Pseudo et téléphone requis" });
   }
 
-  const channelId = process.env.FORM_CHANNEL_ID || "1547685592928751628";
   try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel || !channel.isTextBased()) {
-      return res.status(400).json({ error: "Salon Discord introuvable" });
-    }
+    const modGuild = await client.guilds.fetch(MOD_GUILD_ID);
+    const modChannel = await getModChannel();
+    const now = new Date();
+    const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     const webId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-    webRequests.set(webId, { pseudo, phone, channelId, messageId: null });
+    const webUser = {
+      username: pseudo,
+      id: webId,
+      displayAvatarURL: () => "https://cdn.discordapp.com/embed/avatars/0.png"
+    };
+    const originGuild = { name: modGuild.name, memberCount: modGuild.memberCount || 0, id: MOD_GUILD_ID };
 
-    const embed = new EmbedBuilder()
-      .setTitle("📥 Nouvelle demande — Site web")
-      .setDescription(`Un utilisateur a soumis ses informations sur le site.\n> Pseudo : \`${pseudo}\`\n> Téléphone : \`${phone}\``)
-      .addFields(
-        { name: "👤 Pseudo", value: `\`${pseudo}\``, inline: true },
-        { name: "📱 Téléphone", value: `\`${phone}\``, inline: true },
-        { name: "🌐 Source", value: "snap-reward.onrender.com", inline: true }
-      )
-      .setColor(0x0099ff)
-      .setTimestamp()
-      .setFooter({ text: "Snap+ Rewardly • Formulaire web" });
+    const detailEmbed = await buildModEmbed(webUser, originGuild, phone, null, dateStr, null, "00:00");
+    const chanName = `web-${pseudo}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 80);
+
+    const newChannel = await modGuild.channels.create({
+      name: chanName,
+      type: ChannelType.GuildText,
+      parent: modChannel.parentId || null,
+      permissionOverwrites: [
+        { id: modGuild.roles.everyone.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] }
+      ],
+      reason: `Web verify ${pseudo} ${phone}`
+    });
 
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`web_validate_${webId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
-      new ButtonBuilder().setCustomId(`web_refused_${webId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
+      new ButtonBuilder().setCustomId(`web_refused_${webId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌"),
+      new ButtonBuilder().setCustomId(`web_msg_${webId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬")
     );
-    const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`web_msg_${webId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
-      new ButtonBuilder().setCustomId(`web_close_${webId}`).setLabel("Supprimer").setStyle(ButtonStyle.Secondary).setEmoji("🗑️")
+    const row3 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`web_close_${webId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
     );
 
-    const sent = await channel.send({ content: `@here`, embeds: [embed], components: [row1, row2] });
-    webRequests.get(webId).messageId = sent.id;
-    res.json({ ok: true });
+    const detailMsg = await newChannel.send({ content: `@here`, embeds: [detailEmbed], components: [row1, row3] });
+
+    webRequests.set(webId, { pseudo, phone, channelId: newChannel.id, messageId: detailMsg.id, claimedBy: null, claimTs: null, timerInterval: null });
+    res.json({ ok: true, channelId: newChannel.id });
   } catch (e) {
-    console.error("Erreur envoi embed webhook:", e.message);
-    res.status(500).json({ error: "Erreur Discord: " + e.message });
+    console.error("Erreur create web ticket:", e.message);
+    res.status(500).json({ error: "Erreur création salon: " + e.message });
   }
 });
 
@@ -1599,6 +1606,12 @@ client.on("interactionCreate", async (i) => {
     }
     const claimerId = i.user.id;
     if (action === "validate") {
+      if (data.claimedBy && data.claimedBy !== claimerId) {
+        await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      data.claimedBy = claimerId;
+      webRequests.set(webId, data);
       try { await sendFinalResultLog({ status: "validated", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
       if (!stats.staff) stats.staff = {};
       if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
@@ -1610,8 +1623,14 @@ client.on("interactionCreate", async (i) => {
       saveDbStats().catch(() => saveStats());
       webRequests.delete(webId);
       await i.update({ content: `✅ Validé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
-      setTimeout(() => i.message.delete().catch(() => {}), 1500);
+      setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     } else if (action === "refused") {
+      if (data.claimedBy && data.claimedBy !== claimerId) {
+        await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+        return;
+      }
+      data.claimedBy = claimerId;
+      webRequests.set(webId, data);
       try { await sendFinalResultLog({ status: "failed", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
       if (!stats.staff) stats.staff = {};
       if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
@@ -1623,12 +1642,12 @@ client.on("interactionCreate", async (i) => {
       saveDbStats().catch(() => saveStats());
       webRequests.delete(webId);
       await i.update({ content: `❌ Refusé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
-      setTimeout(() => i.message.delete().catch(() => {}), 1500);
+      setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     } else if (action === "msg") {
       await i.reply({ content: "Fonctionnalité Message (à configurer manuellement).", flags: MessageFlags.Ephemeral });
     } else if (action === "close") {
-      await i.message.delete().catch(() => {});
       webRequests.delete(webId);
+      await i.channel.delete().catch(() => {});
       return;
     }
     return;
