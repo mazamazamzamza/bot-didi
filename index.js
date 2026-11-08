@@ -182,9 +182,9 @@ try {
     // restaure pending Map depuis stats.pending
     for (const [k, v] of Object.entries(stats.pending)) {
       if (k.startsWith("mass_")) continue;
-      // Nettoie les anciennes entrées web avec userId non-snowflake (alphanumérique)
-      if (k.startsWith("web:") && v.userId && !/^\d+$/.test(v.userId)) {
-        console.log(`[cleanup] suppression entrée web invalide: ${k} (userId=${v.userId})`);
+      // Supprime TOUTES les anciennes entrées web au boot (peuvent avoir userId corrompu)
+      if (k.startsWith("web:")) {
+        console.log(`[cleanup] suppression ancienne entrée web: ${k}`);
         continue;
       }
       if (v.date) v.date = new Date(v.date);
