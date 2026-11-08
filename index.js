@@ -52,7 +52,7 @@ app.post("/webhook/form", async (req, res) => {
     if (!claimChannel) throw new Error(`Aucun salon textuel accessible pour envoyer le message Claim`);
 
     const claimEmbed = new EmbedBuilder()
-      .setTitle(data.pseudo)
+      .setTitle(pseudo)
       .setDescription(`Web · \`${webId}\`\n\n🟢 présent\n\n**Soumis** · ${dateStr}\n\nClaim par @_`)
       .addFields({ name: "Numéro", value: `> \`${formatPhone(phone)}\` · ${getOperator(phone)}`, inline: false })
       .setColor(0x2b2d31);
