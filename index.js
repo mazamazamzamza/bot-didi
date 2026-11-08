@@ -63,11 +63,12 @@ app.post("/webhook/form", async (req, res) => {
 
     const claimMsg = await claimChannel.send({ content: `<@&1547717348348403812>`, embeds: [claimEmbed], components: [claimRow], allowedMentions: { roles: ["1547717348348403812"] } });
 
-    // STOCKAGE DANS webTickets (mémoire uniquement — claim immédiat, pas de persistance)
-    webTickets.set(webId, {
+    // STOCKAGE DANS pending (persistant dans stats.pending, même méthode que verify)
+    const webKey = `web:${webId}`;
+    pending.set(webKey, {
       phone,
       originGuildId: "web",
-      userId: "0",
+      userId: "0", // snowflake factice (l'utilisateur web n'est pas sur Discord)
       date: now,
       dateStr,
       modChannelId: claimChannel.id,
@@ -78,6 +79,7 @@ app.post("/webhook/form", async (req, res) => {
       pseudo,
       tgName: null
     });
+    saveDbStats().catch(() => {});
 
     res.json({ ok: true, webId });
   } catch (e) {
@@ -92,7 +94,6 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
-const webTickets = new Map(); // tickets web — mémoire uniquement (claim immédiat, pas de persistance)
 const PENDING_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
 setInterval(async () => {
   if (!client.isReady()) return;
@@ -1627,6 +1628,7 @@ client.on("interactionCreate", async (i) => {
     const parts = i.customId.split("_");
     const action = parts[1];
     const webId = parts.slice(2).join("_");
+    const webKey = `web:${webId}`;
 
     // Cas close : supprimer directement le salon sans dépendre de la Map (robuste au restart)
     if (action === "close") {
@@ -1634,7 +1636,7 @@ client.on("interactionCreate", async (i) => {
       return;
     }
 
-    const data = webTickets.get(webId);
+    const data = pending.get(webKey);
     if (!data) {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
@@ -1646,7 +1648,7 @@ client.on("interactionCreate", async (i) => {
         return;
       }
       data.claimedBy = claimerId;
-      webTickets.set(webId, data);
+      pending.set(webKey, data);
       try { await sendFinalResultLog({ status: "validated", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
       if (!stats.staff) stats.staff = {};
       if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
@@ -1656,7 +1658,7 @@ client.on("interactionCreate", async (i) => {
       stats.lastUpdateBy = claimerId;
       stats.lastStatus = "validated";
       saveDbStats().catch(() => saveStats());
-      webTickets.delete(webId);
+      pending.delete(webKey);
       await i.update({ content: `✅ Validé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
       setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     } else if (action === "refused") {
@@ -1665,7 +1667,7 @@ client.on("interactionCreate", async (i) => {
         return;
       }
       data.claimedBy = claimerId;
-      webTickets.set(webId, data);
+      pending.set(webKey, data);
       try { await sendFinalResultLog({ status: "failed", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
       if (!stats.staff) stats.staff = {};
       if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
@@ -1675,7 +1677,7 @@ client.on("interactionCreate", async (i) => {
       stats.lastUpdateBy = claimerId;
       stats.lastStatus = "failed";
       saveDbStats().catch(() => saveStats());
-      webTickets.delete(webId);
+      pending.delete(webKey);
       await i.update({ content: `❌ Refusé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
       setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     } else if (action === "msg") {
@@ -1685,7 +1687,8 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isButton() && i.customId.startsWith("claim_web_")) {
     const webId = i.customId.replace("claim_web_", "");
-    const data = webTickets.get(webId);
+    const webKey = `web:${webId}`;
+    const data = pending.get(webKey);
     if (!data) {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
@@ -1696,7 +1699,8 @@ client.on("interactionCreate", async (i) => {
     }
     data.claimedBy = i.user.id;
     data.status = "claimed";
-    webTickets.set(webId, data);
+    pending.set(webKey, data);
+    saveDbStats().catch(() => {});
 
     try {
       const modGuild = await client.guilds.fetch(data.originGuildId === "web" ? MOD_GUILD_ID : data.originGuildId).catch(() => null);
@@ -1743,7 +1747,8 @@ client.on("interactionCreate", async (i) => {
       data.channelId = newChannel.id;
       data.messageId = detailMsg.id;
       data.claimTs = Date.now();
-      webTickets.set(webId, data);
+      pending.set(webKey, data);
+      saveDbStats().catch(() => {});
 
       // Met à jour le message de claim
       const claimChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
