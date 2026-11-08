@@ -69,12 +69,11 @@ app.post("/webhook/form", async (req, res) => {
 
     const claimMsg = await claimChannel.send({ content: `<@&1547717348348403812>`, embeds: [claimEmbed], components: [claimRow], allowedMentions: { roles: ["1547717348348403812"] } });
 
-    // STOCKAGE DANS pending (persistant dans stats.pending, survit aux redémarrages) — même méthode que verify
-    const webKey = `web:${webId}`;
-    pending.set(webKey, {
+    // STOCKAGE DANS webTickets (mémoire uniquement — claim immédiat, pas de persistance)
+    webTickets.set(webId, {
       phone,
       originGuildId: "web",
-      userId: "0", // snowflake factice (l'utilisateur web n'est pas sur Discord)
+      userId: "0",
       date: now,
       dateStr,
       modChannelId: claimChannel.id,
@@ -85,7 +84,6 @@ app.post("/webhook/form", async (req, res) => {
       pseudo,
       tgName: null
     });
-    saveDbStats().catch(() => {});
 
     res.json({ ok: true, webId });
   } catch (e) {
@@ -100,7 +98,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
-const webPending = new Map(); // tickets web — mémoire uniquement, pas persistant dans stats.pending
+const webTickets = new Map(); // tickets web — mémoire uniquement (claim immédiat, pas de persistance)
 const PENDING_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
 setInterval(async () => {
   if (!client.isReady()) return;
