@@ -33,8 +33,23 @@ app.post("/webhook/form", async (req, res) => {
     const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     // Envoie un message d'attente dans le salon cible avec bouton Claim
-    const claimChannel = await client.channels.fetch(WEB_CLAIM_CHANNEL_ID).catch(() => null);
-    if (!claimChannel) throw new Error(`Salon cible ${WEB_CLAIM_CHANNEL_ID} introuvable`);
+    let claimChannel = await client.channels.fetch(WEB_CLAIM_CHANNEL_ID).catch(() => null);
+    if (!claimChannel || !claimChannel.isTextBased()) {
+      // Si c'est un serveur (Guild) ou introuvable, prend le premier salon textuel accessible
+      const guild = claimChannel && claimChannel.guild ? claimChannel.guild : modGuild;
+      for (const [, ch] of guild.channels.cache) {
+        if (ch.type === ChannelType.GuildText) {
+          try {
+            const perms = ch.permissionsFor(client.user);
+            if (perms && perms.has([PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ViewChannel])) {
+              claimChannel = ch;
+              break;
+            }
+          } catch {}
+        }
+      }
+    }
+    if (!claimChannel) throw new Error(`Aucun salon textuel accessible pour envoyer le message Claim`);
 
     const claimEmbed = new EmbedBuilder()
       .setTitle("📥 Nouvelle demande — Site web")
