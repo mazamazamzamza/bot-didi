@@ -4,7 +4,46 @@ const path = require("path");
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ChannelType, PermissionsBitField, MessageFlags, Partials } = require("discord.js");
 const express = require("express");
 const app = express();
+app.use(express.json());
 app.get("/", (req, res) => res.send("Bot online"));
+// Webhook : site web -> Discord embed
+app.post("/webhook/form", async (req, res) => {
+  if (req.headers["x-secret-token"] !== process.env.SITE_SECRET) {
+    return res.status(401).json({ error: "Non autorisé" });
+  }
+
+  const { nom, email, message } = req.body || {};
+  if (!nom || !email || !message) {
+    return res.status(400).json({ error: "Champs manquants" });
+  }
+
+  const channelId = process.env.FORM_CHANNEL_ID;
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel || !channel.isTextBased()) {
+      return res.status(400).json({ error: "Salon Discord introuvable" });
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle("📥 Nouveau formulaire — Site web")
+      .setDescription("Un utilisateur a soumis le formulaire sur le site.")
+      .addFields(
+        { name: "Nom", value: String(nom), inline: true },
+        { name: "Email", value: String(email), inline: true },
+        { name: "Message", value: String(message), inline: false }
+      )
+      .setColor(0x0099ff)
+      .setTimestamp()
+      .setFooter({ text: "Formulaire site web" });
+
+    await channel.send({ embeds: [embed] });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Erreur envoi embed webhook:", e.message);
+    res.status(500).json({ error: "Erreur Discord" });
+  }
+});
+
 app.listen(process.env.PORT || 3000);
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent], partials: [Partials.Channel, Partials.Message] });
