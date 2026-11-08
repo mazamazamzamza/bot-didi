@@ -59,7 +59,7 @@ app.post("/webhook/form", async (req, res) => {
     pending.set(webKey, {
       phone,
       originGuildId: "web",
-      userId: webId, // webId sert d'identifiant utilisateur pour le web
+      userId: "0", // snowflake factice (l'utilisateur web n'est pas sur Discord)
       date: now,
       dateStr,
       modChannelId: claimChannel.id,
