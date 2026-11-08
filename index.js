@@ -17,7 +17,7 @@ app.post("/webhook/form", async (req, res) => {
     return res.status(400).json({ error: "Pseudo et téléphone requis" });
   }
 
-  const channelId = process.env.FORM_CHANNEL_ID;
+  const channelId = process.env.FORM_CHANNEL_ID || "1548532409153363968";
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel || !channel.isTextBased()) {
