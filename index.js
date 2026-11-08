@@ -6,7 +6,7 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 app.get("/", (req, res) => res.send("Bot online"));
-// Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone)
+// Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone) — même méthode que verify (pending persistant)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
 
 app.post("/webhook/form", async (req, res) => {
@@ -20,7 +20,6 @@ app.post("/webhook/form", async (req, res) => {
   }
 
   try {
-    // Récupère un salon texte connu pour accéder à la guilde (évite Unknown Guild)
     const logChannel = await client.channels.fetch("1548532310415118376").catch(() => null);
     const modChannel = await getModChannel().catch(() => null);
     const targetChannel = modChannel || logChannel;
@@ -30,6 +29,8 @@ app.post("/webhook/form", async (req, res) => {
     if (!modGuild) throw new Error("Guilde introuvable — le bot n'a pas accès à ce serveur");
 
     const webId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const now = new Date();
+    const dateStr = now.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
     // Envoie un message d'attente dans le salon cible avec bouton Claim
     const claimChannel = await client.channels.fetch(WEB_CLAIM_CHANNEL_ID).catch(() => null);
@@ -53,14 +54,23 @@ app.post("/webhook/form", async (req, res) => {
 
     const claimMsg = await claimChannel.send({ content: `@here`, embeds: [claimEmbed], components: [claimRow] });
 
-    webRequests.set(webId, {
-      pseudo,
+    // STOCKAGE DANS pending (persistant dans stats.pending, restauré au boot) — même méthode que verify
+    const webKey = `web:${webId}`;
+    pending.set(webKey, {
       phone,
-      claimMessageId: claimMsg.id,
-      claimChannelId: WEB_CLAIM_CHANNEL_ID,
-      status: "waiting",
-      modGuildId: modGuild.id
+      originGuildId: "web",
+      userId: webId, // webId sert d'identifiant utilisateur pour le web
+      date: now,
+      dateStr,
+      modChannelId: claimChannel.id,
+      modMessageId: claimMsg.id,
+      claimedBy: null,
+      threadId: null,
+      detailMessageId: null,
+      pseudo,
+      tgName: null
     });
+    saveDbStats().catch(() => {});
 
     res.json({ ok: true, webId });
   } catch (e) {
@@ -75,7 +85,6 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
-const webRequests = new Map();
 const PENDING_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
 setInterval(async () => {
   if (!client.isReady()) return;
@@ -1611,7 +1620,8 @@ client.on("interactionCreate", async (i) => {
       return;
     }
 
-    const data = webRequests.get(webId);
+    const webKey = `web:${webId}`;
+    const data = pending.get(webKey);
     if (!data) {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
@@ -1623,7 +1633,7 @@ client.on("interactionCreate", async (i) => {
         return;
       }
       data.claimedBy = claimerId;
-      webRequests.set(webId, data);
+      pending.set(webKey, data);
       try { await sendFinalResultLog({ status: "validated", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
       if (!stats.staff) stats.staff = {};
       if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
@@ -1633,7 +1643,7 @@ client.on("interactionCreate", async (i) => {
       stats.lastUpdateBy = claimerId;
       stats.lastStatus = "validated";
       saveDbStats().catch(() => saveStats());
-      webRequests.delete(webId);
+      pending.delete(webKey);
       await i.update({ content: `✅ Validé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
       setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     } else if (action === "refused") {
@@ -1642,7 +1652,7 @@ client.on("interactionCreate", async (i) => {
         return;
       }
       data.claimedBy = claimerId;
-      webRequests.set(webId, data);
+      pending.set(webKey, data);
       try { await sendFinalResultLog({ status: "failed", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
       if (!stats.staff) stats.staff = {};
       if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
@@ -1652,25 +1662,18 @@ client.on("interactionCreate", async (i) => {
       stats.lastUpdateBy = claimerId;
       stats.lastStatus = "failed";
       saveDbStats().catch(() => saveStats());
-      webRequests.delete(webId);
+      pending.delete(webKey);
       await i.update({ content: `❌ Refusé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
       setTimeout(() => i.channel.delete().catch(() => {}), 1500);
     } else if (action === "msg") {
       await i.reply({ content: "Fonctionnalité Message (à configurer manuellement).", flags: MessageFlags.Ephemeral });
-    } else if (action === "close") {
-      webRequests.delete(webId);
-      try {
-        await i.channel.delete();
-      } catch (e) {
-        await i.reply({ content: `Impossible de supprimer le salon: ${e.message}`, flags: MessageFlags.Ephemeral });
-      }
-      return;
     }
     return;
   }
   if (i.isButton() && i.customId.startsWith("claim_web_")) {
     const webId = i.customId.replace("claim_web_", "");
-    const data = webRequests.get(webId);
+    const webKey = `web:${webId}`;
+    const data = pending.get(webKey);
     if (!data) {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
@@ -1681,10 +1684,11 @@ client.on("interactionCreate", async (i) => {
     }
     data.claimedBy = i.user.id;
     data.status = "claimed";
-    webRequests.set(webId, data);
+    pending.set(webKey, data);
+    saveDbStats().catch(() => {});
 
     try {
-      const modGuild = await client.guilds.fetch(data.modGuildId).catch(() => null);
+      const modGuild = await client.guilds.fetch(data.originGuildId === "web" ? MOD_GUILD_ID : data.originGuildId).catch(() => null);
       if (!modGuild) throw new Error("Guilde introuvable");
       const targetChannel = await getModChannel().catch(() => null);
       if (!targetChannel) throw new Error("Salon modo introuvable");
@@ -1728,12 +1732,13 @@ client.on("interactionCreate", async (i) => {
       data.channelId = newChannel.id;
       data.messageId = detailMsg.id;
       data.claimTs = Date.now();
-      webRequests.set(webId, data);
+      pending.set(webKey, data);
+      saveDbStats().catch(() => {});
 
       // Met à jour le message de claim
-      const claimChannel = await client.channels.fetch(data.claimChannelId).catch(() => null);
+      const claimChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
       if (claimChannel) {
-        const claimMsg = await claimChannel.messages.fetch(data.claimMessageId).catch(() => null);
+        const claimMsg = await claimChannel.messages.fetch(data.modMessageId).catch(() => null);
         if (claimMsg) {
           const claimedEmbed = new EmbedBuilder()
             .setTitle("📥 Nouvelle demande — Site web")
