@@ -1691,8 +1691,10 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isButton() && i.customId.startsWith("claim_web_")) {
     const webId = i.customId.replace("claim_web_", "");
+    console.log("[claim_web] webId=", webId, " webPending size=", webPending.size, " keys=", [...webPending.keys()].slice(0, 5));
     const data = webPending.get(webId);
     if (!data) {
+      console.log("[claim_web] non trouvé dans webPending");
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
     }
