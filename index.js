@@ -93,6 +93,7 @@ setInterval(async () => {
     if (data.claimedBy) continue; // déjà claim
     if (data.timedOut) continue; // déjà traité timeout
     if (key.startsWith("mass_")) continue; // mass dm tmp
+    if (key.startsWith("web:")) continue; // web — pas de timeout DM (pas d'utilisateur Discord)
     if (!data.date) continue;
     if (now - new Date(data.date).getTime() < PENDING_TIMEOUT_MS) continue;
     // timeout 15min sans claim -> précise pas claim + bouton Prêt + DM "réessaie plus tard"
