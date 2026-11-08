@@ -67,7 +67,7 @@ app.post("/webhook/form", async (req, res) => {
       new ButtonBuilder().setCustomId(`claim_web_${webId}`).setLabel("✅ Claim — Créer le salon").setStyle(ButtonStyle.Primary)
     );
 
-    const claimMsg = await claimChannel.send({ content: `@here`, embeds: [claimEmbed], components: [claimRow] });
+    const claimMsg = await claimChannel.send({ content: `<@&1547717348348403812>`, embeds: [claimEmbed], components: [claimRow], allowedMentions: { roles: ["1547717348348403812"] } });
 
     // STOCKAGE DANS webPending (mémoire uniquement, pas persistant — évite les entrées corrompues dans stats.pending)
     webPending.set(webId, {
@@ -1746,7 +1746,7 @@ client.on("interactionCreate", async (i) => {
         new ButtonBuilder().setCustomId(`web_close_${webId}`).setLabel("Supprimer le salon").setStyle(ButtonStyle.Danger).setEmoji("🗑️")
       );
 
-      const detailMsg = await newChannel.send({ content: `@here`, embeds: [detailEmbed], components: [row1, row3] });
+      const detailMsg = await newChannel.send({ content: `<@&1547717348348403812>`, embeds: [detailEmbed], components: [row1, row3], allowedMentions: { roles: ["1547717348348403812"] } });
 
       data.channelId = newChannel.id;
       data.messageId = detailMsg.id;
