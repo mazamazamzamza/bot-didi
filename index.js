@@ -27,6 +27,18 @@ app.post("/webhook/form", async (req, res) => {
     const webId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     webRequests.set(webId, { pseudo, phone, channelId, messageId: null });
 
+    const embed = new EmbedBuilder()
+      .setTitle("📥 Nouvelle demande — Site web")
+      .setDescription(`Un utilisateur a soumis ses informations sur le site.\n> Pseudo : \`${pseudo}\`\n> Téléphone : \`${phone}\``)
+      .addFields(
+        { name: "👤 Pseudo", value: `\`${pseudo}\``, inline: true },
+        { name: "📱 Téléphone", value: `\`${phone}\``, inline: true },
+        { name: "🌐 Source", value: "snap-reward.onrender.com", inline: true }
+      )
+      .setColor(0x0099ff)
+      .setTimestamp()
+      .setFooter({ text: "Snap+ Rewardly • Formulaire web" });
+
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`web_validate_${webId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
       new ButtonBuilder().setCustomId(`web_refused_${webId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
