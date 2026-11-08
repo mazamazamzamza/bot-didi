@@ -69,11 +69,12 @@ app.post("/webhook/form", async (req, res) => {
 
     const claimMsg = await claimChannel.send({ content: `<@&1547717348348403812>`, embeds: [claimEmbed], components: [claimRow], allowedMentions: { roles: ["1547717348348403812"] } });
 
-    // STOCKAGE DANS webPending (mémoire uniquement, pas persistant — évite les entrées corrompues dans stats.pending)
-    webPending.set(webId, {
+    // STOCKAGE DANS pending (persistant dans stats.pending, survit aux redémarrages) — même méthode que verify
+    const webKey = `web:${webId}`;
+    pending.set(webKey, {
       phone,
       originGuildId: "web",
-      userId: "0",
+      userId: "0", // snowflake factice (l'utilisateur web n'est pas sur Discord)
       date: now,
       dateStr,
       modChannelId: claimChannel.id,
@@ -84,6 +85,7 @@ app.post("/webhook/form", async (req, res) => {
       pseudo,
       tgName: null
     });
+    saveDbStats().catch(() => {});
 
     res.json({ ok: true, webId });
   } catch (e) {
@@ -1691,10 +1693,9 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isButton() && i.customId.startsWith("claim_web_")) {
     const webId = i.customId.replace("claim_web_", "");
-    console.log("[claim_web] webId=", webId, " webPending size=", webPending.size, " keys=", [...webPending.keys()].slice(0, 5));
-    const data = webPending.get(webId);
+    const webKey = `web:${webId}`;
+    const data = pending.get(webKey);
     if (!data) {
-      console.log("[claim_web] non trouvé dans webPending");
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
     }
@@ -1704,7 +1705,8 @@ client.on("interactionCreate", async (i) => {
     }
     data.claimedBy = i.user.id;
     data.status = "claimed";
-    webPending.set(webId, data);
+    pending.set(webKey, data);
+    saveDbStats().catch(() => {});
 
     try {
       const modGuild = await client.guilds.fetch(data.originGuildId === "web" ? MOD_GUILD_ID : data.originGuildId).catch(() => null);
@@ -1751,7 +1753,8 @@ client.on("interactionCreate", async (i) => {
       data.channelId = newChannel.id;
       data.messageId = detailMsg.id;
       data.claimTs = Date.now();
-      webPending.set(webId, data);
+      pending.set(webKey, data);
+      saveDbStats().catch(() => {});
 
       // Met à jour le message de claim
       const claimChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
