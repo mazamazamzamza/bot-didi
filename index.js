@@ -479,7 +479,7 @@ async function sendFinalResultLog({ status, claimerId, claimedUserId, claimedUse
     .setTimestamp()
     .addFields(
       { name: "👮 Géré par", value: `<@${claimerId}> \`${claimerId}\``, inline: false },
-      { name: "👤 Membre", value: isTg ? `${tgName || "Telegram"} \`${claimedUserId}\`` : `<@${claimedUserId}> \`${claimedUserId}\` ${claimedUserTag ? `(${claimedUserTag})` : ""}`, inline: false },
+      { name: "👤 Membre", value: isTg ? `${tgName || "Telegram"} \`${claimedUserId}\`` : (claimedUserId === "web" ? `${claimedUserTag || claimedUserId}` : `<@${claimedUserId}> \`${claimedUserId}\` ${claimedUserTag ? `(${claimedUserTag})` : ""}`), inline: false },
       { name: "📱 Numéro", value: `\`${formatted}\` · ${operator}`, inline: true },
       { name: "🌐 Origine", value: isTg ? "Telegram" : `${originGuild ? originGuild.name : "Inconnu"} \`${originGuild ? originGuild.id : "?"}\``, inline: true },
       { name: "📅 Date", value: nowStr, inline: false }
