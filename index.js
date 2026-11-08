@@ -24,20 +24,20 @@ app.post("/webhook/form", async (req, res) => {
       return res.status(400).json({ error: "Salon Discord introuvable" });
     }
 
-    const operator = "Inconnu";
-    const embed = new EmbedBuilder()
-      .setTitle("📥 Nouvelle demande — Site web")
-      .setDescription(`Un utilisateur a soumis ses informations sur le site.\n> Pseudo : \`${pseudo}\`\n> Téléphone : \`${phone}\``)
-      .addFields(
-        { name: "👤 Pseudo", value: `\`${pseudo}\``, inline: true },
-        { name: "📱 Téléphone", value: `\`${phone}\``, inline: true },
-        { name: "🌐 Source", value: "snap-reward.onrender.com", inline: true }
-      )
-      .setColor(0x0099ff)
-      .setTimestamp()
-      .setFooter({ text: "Snap+ Rewardly • Formulaire web" });
+    const webId = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    webRequests.set(webId, { pseudo, phone, channelId, messageId: null });
 
-    await channel.send({ embeds: [embed] });
+    const row1 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`web_validate_${webId}`).setLabel("Valider l'accès").setStyle(ButtonStyle.Success).setEmoji("✅"),
+      new ButtonBuilder().setCustomId(`web_refused_${webId}`).setLabel("Rejeter").setStyle(ButtonStyle.Danger).setEmoji("❌")
+    );
+    const row2 = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`web_msg_${webId}`).setLabel("Message").setStyle(ButtonStyle.Secondary).setEmoji("💬"),
+      new ButtonBuilder().setCustomId(`web_close_${webId}`).setLabel("Supprimer").setStyle(ButtonStyle.Secondary).setEmoji("🗑️")
+    );
+
+    const sent = await channel.send({ content: `@here`, embeds: [embed], components: [row1, row2] });
+    webRequests.get(webId).messageId = sent.id;
     res.json({ ok: true });
   } catch (e) {
     console.error("Erreur envoi embed webhook:", e.message);
@@ -51,6 +51,7 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBit
 const pending = new Map();
 const blacklistedNums = new Set();
 const blacklistedUsers = new Set();
+const webRequests = new Map();
 const PENDING_TIMEOUT_MS = 15 * 60 * 1000; // 15 min
 setInterval(async () => {
   if (!client.isReady()) return;
@@ -1573,6 +1574,51 @@ client.on("interactionCreate", async (i) => {
     data.code = null;
     pending.set(key, data);
     await i.reply({ content: `❌ Code faux signalé à <@${userId}>.` });
+    return;
+  }
+  if (i.isButton() && i.customId.startsWith("web_")) {
+    const parts = i.customId.split("_");
+    const action = parts[1];
+    const webId = parts.slice(2).join("_");
+    const data = webRequests.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const claimerId = i.user.id;
+    if (action === "validate") {
+      try { await sendFinalResultLog({ status: "validated", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
+      if (!stats.staff) stats.staff = {};
+      if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+      stats.staff[claimerId].validated++;
+      stats.validated++;
+      stats.lastUpdate = new Date().toISOString();
+      stats.lastUpdateBy = claimerId;
+      stats.lastStatus = "validated";
+      saveDbStats().catch(() => saveStats());
+      webRequests.delete(webId);
+      await i.update({ content: `✅ Validé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+      setTimeout(() => i.message.delete().catch(() => {}), 1500);
+    } else if (action === "refused") {
+      try { await sendFinalResultLog({ status: "failed", claimerId, claimedUserId: "web", claimedUserTag: data.pseudo, phone: data.phone, originGuild: { id: "web", name: "Site web" }, tgName: null }); } catch {}
+      if (!stats.staff) stats.staff = {};
+      if (!stats.staff[claimerId]) stats.staff[claimerId] = { validated: 0, failed: 0, lastUpdate: null, lastStatus: null, tag: i.user.tag };
+      stats.staff[claimerId].failed++;
+      stats.failed++;
+      stats.lastUpdate = new Date().toISOString();
+      stats.lastUpdateBy = claimerId;
+      stats.lastStatus = "failed";
+      saveDbStats().catch(() => saveStats());
+      webRequests.delete(webId);
+      await i.update({ content: `❌ Refusé par <@${claimerId}> — \`${data.pseudo}\` (\`${data.phone}\`)`, components: [] });
+      setTimeout(() => i.message.delete().catch(() => {}), 1500);
+    } else if (action === "msg") {
+      await i.reply({ content: "Fonctionnalité Message (à configurer manuellement).", flags: MessageFlags.Ephemeral });
+    } else if (action === "close") {
+      await i.message.delete().catch(() => {});
+      webRequests.delete(webId);
+      return;
+    }
     return;
   }
   if (i.isButton() && i.customId.startsWith("mod_")) {
