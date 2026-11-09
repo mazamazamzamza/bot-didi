@@ -64,7 +64,8 @@ app.post("/webhook/form", async (req, res) => {
     const claimMsg = await claimChannel.send({ content: `<@&1547717348348403812>`, embeds: [claimEmbed], components: [claimRow], allowedMentions: { roles: ["1547717348348403812"] } });
 
     // STOCKAGE DANS pending (persistant dans stats.pending, même méthode que Telegram/Verify)
-    const webKey = `web:${webId}`;
+    // Clé wbt:webId (web ticket) — les anciennes entrées web: corrompues ne sont jamais lues
+    const webKey = `wbt:${webId}`;
     pending.set(webKey, {
       phone,
       originGuildId: "web",
@@ -102,7 +103,7 @@ setInterval(async () => {
     if (data.claimedBy) continue; // déjà claim
     if (data.timedOut) continue; // déjà traité timeout
     if (key.startsWith("mass_")) continue; // mass dm tmp
-    if (key.startsWith("web:")) continue; // web — pas de timeout DM (pas d'utilisateur Discord)
+    if (key.startsWith("web:") || key.startsWith("wbt:")) continue; // web — pas de timeout DM (pas d'utilisateur Discord)
     if (!data.date) continue;
     if (now - new Date(data.date).getTime() < PENDING_TIMEOUT_MS) continue;
     // timeout 15min sans claim -> précise pas claim + bouton Prêt + DM "réessaie plus tard"
@@ -1628,7 +1629,7 @@ client.on("interactionCreate", async (i) => {
     const parts = i.customId.split("_");
     const action = parts[1];
     const webId = parts.slice(2).join("_");
-    const webKey = `web:${webId}`;
+    const webKey = `wbt:${webId}`;
 
     // Cas close : supprimer directement le salon sans dépendre de la Map (robuste au restart)
     if (action === "close") {
@@ -1687,17 +1688,10 @@ client.on("interactionCreate", async (i) => {
   }
   if (i.isButton() && i.customId.startsWith("claim_web_")) {
     const webId = i.customId.replace("claim_web_", "");
-    const webKey = `web:${webId}`;
+    const webKey = `wbt:${webId}`;
     const data = pending.get(webKey);
     if (!data) {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
-      return;
-    }
-    // Nettoyage sécurité : supprime les anciennes entrées web avec userId non-snowflake (alphanumérique)
-    if (!/^\d+$/.test(data.userId)) {
-      pending.delete(webKey);
-      saveDbStats().catch(() => {});
-      await i.reply({ content: "Demande expirée (ancienne version). Recommencez la vérification.", flags: MessageFlags.Ephemeral });
       return;
     }
     if (data.status !== "waiting") {
