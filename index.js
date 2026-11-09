@@ -9,7 +9,17 @@ app.get("/", (req, res) => res.send("Bot online"));
 // Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone) — même méthode que verify (pending persistant)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
 
+app.options("/webhook/form", (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-secret-token');
+  res.status(204).end();
+});
+
 app.post("/webhook/form", async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-secret-token');
   if (req.headers["x-secret-token"] !== process.env.SITE_SECRET) {
     return res.status(401).json({ error: "Non autorisé" });
   }
