@@ -8,6 +8,7 @@ app.use(express.json());
 app.get("/", (req, res) => res.send("Bot online"));
 // Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone) — même méthode que verify (pending persistant)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
+const webhookDedup = new Map(); // déduplication des requêtes webhook (évite les doublons)
 
 app.options("/webhook/form", (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -28,6 +29,15 @@ app.post("/webhook/form", async (req, res) => {
   if (!pseudo || !phone) {
     return res.status(400).json({ error: "Pseudo et téléphone requis" });
   }
+
+  // Déduplication : ignorer les doublons dans les 10 secondes
+  const dedupKey = `${pseudo}|${phone}`;
+  const now = Date.now();
+  const last = webhookDedup.get(dedupKey);
+  if (last && now - last < 10000) {
+    return res.status(429).json({ error: "Demande déjà en cours de traitement" });
+  }
+  webhookDedup.set(dedupKey, now);
 
   try {
     const logChannel = await client.channels.fetch("1548532310415118376").catch(() => null);
