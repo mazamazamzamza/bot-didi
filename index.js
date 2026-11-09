@@ -1693,6 +1693,13 @@ client.on("interactionCreate", async (i) => {
       await i.reply({ content: "Demande inconnue ou expirée.", flags: MessageFlags.Ephemeral });
       return;
     }
+    // Nettoyage sécurité : supprime les anciennes entrées web avec userId non-snowflake (alphanumérique)
+    if (!/^\d+$/.test(data.userId)) {
+      pending.delete(webKey);
+      saveDbStats().catch(() => {});
+      await i.reply({ content: "Demande expirée (ancienne version). Recommencez la vérification.", flags: MessageFlags.Ephemeral });
+      return;
+    }
     if (data.status !== "waiting") {
       await i.reply({ content: `Déjà claim par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
       return;
