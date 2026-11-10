@@ -768,14 +768,14 @@ client.on("messageCreate", async (m) => {
 });
 
 client.on("interactionCreate", async (i) => {
-  // === SNAP+ BOUTONS ===
+  // === SNAP+ BOUTONS VALIDER / REFUSER ===
   if (i.isButton() && i.customId.startsWith("snap_ok_")) {
     const id = i.customId.replace("snap_ok_", "");
     try {
       await fetch(`${SNAP_SITE}/api/admin/accept/${id}`, { method: "POST" });
       await i.update({ content: "✅ Demande validée", embeds: [], components: [] });
     } catch (e) {
-      await i.reply({ content: "Erreur serveur", flags: 64 });
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
     }
     return;
   }
@@ -786,12 +786,11 @@ client.on("interactionCreate", async (i) => {
       await fetch(`${SNAP_SITE}/api/admin/refuse/${id}`, { method: "POST" });
       await i.update({ content: "❌ Demande refusée", embeds: [], components: [] });
     } catch (e) {
-      await i.reply({ content: "Erreur serveur", flags: 64 });
+      await i.reply({ content: "Erreur serveur", flags: MessageFlags.Ephemeral });
     }
     return;
   }
 
-  // === CODE EXISTANT ===
   if (i.isChatInputCommand() && i.commandName === "stats") {
     const total = stats.validated + stats.failed;
     const successRate = total > 0 ? Math.round((stats.validated / total) * 100) : 0;
@@ -1853,7 +1852,7 @@ client.on("interactionCreate", async (i) => {
       pending.set(webKey, data);
       saveDbStats().catch(() => {});
 
-      // Met à jour le message de claim
+      // Mettre à jour le message de claim original
       const claimChannel = await client.channels.fetch(data.modChannelId).catch(() => null);
       if (claimChannel) {
         const claimMsg = await claimChannel.messages.fetch(data.modMessageId).catch(() => null);
@@ -1879,6 +1878,71 @@ client.on("interactionCreate", async (i) => {
     }
     return;
   }
+
+  // === WEB STAFF ACTIONS MENU ===
+  if (i.isStringSelectMenu() && i.customId.startsWith("web_staff_")) {
+    const webId = i.customId.replace("web_staff_", "");
+    const data = webTickets.get(webId);
+    if (!data) {
+      await i.reply({ content: "Demande introuvable.", flags: MessageFlags.Ephemeral });
+      return;
+    }
+    if (data.claimedBy && data.claimedBy !== i.user.id) {
+      await i.reply({ content: `Déjà traité par <@${data.claimedBy}>.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    const value = i.values[0];
+
+    try {
+      if (value === "reset") {
+        webTickets.delete(webId);
+        await i.reply({ content: `🔄 Tentative de <@${data.pseudo}> réinitialisée.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "blacklist_num") {
+        blacklistedNums.add(data.phone);
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔴 Numéro ${data.phone} blacklisté.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "blacklist_user") {
+        blacklistedUsers.add(data.userId || "web");
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `⛔ Utilisateur ${data.pseudo} blacklisté.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "kick") {
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `👢 Utilisateur ${data.pseudo} expulsé.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+
+      if (value === "ban") {
+        webTickets.delete(webId);
+        saveDbStats().catch(() => {});
+        await i.reply({ content: `🔨 Utilisateur ${data.pseudo} banni.` });
+        setTimeout(() => i.channel.delete().catch(() => {}), 1500);
+        return;
+      }
+    } catch (e) {
+      console.error("Erreur staff web:", e.message);
+      await i.reply({ content: "Erreur lors de l'action staff.", flags: MessageFlags.Ephemeral });
+    }
+    return;
+  }
+
+  // === CODE EXISTANT (mod_, etc.) ===
   if (i.isButton() && i.customId.startsWith("mod_")) {
     const parts = i.customId.split("_");
     const action = parts[1];
@@ -1931,9 +1995,9 @@ client.on("interactionCreate", async (i) => {
       }
       try {
         const u = await client.users.fetch(userId);
-        const resendEmbed = new EmbedBuilder().setTitle("🔄 Nouveau code demandé").setDescription(`Envoie simplement ton **nouveau code à 4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setTimestamp();
-        await u.send({ embeds: [resendEmbed] });
-        await i.reply({ content: `🔄 Code redemandé à <@${userId}>.` });
+          const resendEmbed = new EmbedBuilder().setTitle("🔄 Nouveau code demandé").setDescription(`Envoie simplement ton **nouveau code à 4 chiffres** reçu par SMS **directement ici** en réponse.\n\n> Exemple: \`1234\``).setColor(0x5865f2).setTimestamp();
+          await u.send({ embeds: [resendEmbed] });
+          await i.reply({ content: `🔄 Code redemandé à <@${userId}>.` });
       } catch {
         await i.reply({ content: "DM impossible.", flags: MessageFlags.Ephemeral });
       }
@@ -1961,12 +2025,12 @@ client.on("interactionCreate", async (i) => {
       } else if (value === "blacklist_num") {
         if (data) blacklistedNums.add(data.phone);
         pending.delete(key);
-        saveDbStats().catch(()=>{});
+        saveDbStats().catch(() => {});
         await i.reply({ content: `🔴 Numéro ${data ? data.phone : ""} blacklisté.` });
       } else if (value === "blacklist_user") {
         blacklistedUsers.add(userId);
         pending.delete(key);
-        saveDbStats().catch(()=>{});
+        saveDbStats().catch(() => {});
         await i.reply({ content: `⛔ <@${userId}> blacklisté.` });
       } else if (value === "kick") {
         if (member) await member.kick("Staff");
