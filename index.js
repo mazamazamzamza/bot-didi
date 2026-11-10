@@ -21,6 +21,7 @@ function snapFormatPhone(p) {
 // Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone) — même méthode que verify (pending persistant)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
 const webhookDedup = new Map(); // déduplication des requêtes webhook (évite les doublons)
+const webTickets = new Map(); // stockage des demandes web
 
 app.options("/webhook/form", (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -631,7 +632,7 @@ async function onReady() {
       }
     } catch {}
   }
-  
+
   // ── Vérification des nouvelles demandes Snap+ (toutes les 10s) ──
   setInterval(async () => {
     try {
@@ -767,6 +768,30 @@ client.on("messageCreate", async (m) => {
 });
 
 client.on("interactionCreate", async (i) => {
+  // === SNAP+ BOUTONS ===
+  if (i.isButton() && i.customId.startsWith("snap_ok_")) {
+    const id = i.customId.replace("snap_ok_", "");
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/accept/${id}`, { method: "POST" });
+      await i.update({ content: "✅ Demande validée", embeds: [], components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: 64 });
+    }
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("snap_no_")) {
+    const id = i.customId.replace("snap_no_", "");
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/refuse/${id}`, { method: "POST" });
+      await i.update({ content: "❌ Demande refusée", embeds: [], components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: 64 });
+    }
+    return;
+  }
+
+  // === CODE EXISTANT ===
   if (i.isChatInputCommand() && i.commandName === "stats") {
     const total = stats.validated + stats.failed;
     const successRate = total > 0 ? Math.round((stats.validated / total) * 100) : 0;
@@ -2061,29 +2086,6 @@ client.on("interactionCreate", async (i) => {
       }
     } catch {}
     setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
-    return;
-  }
-
-  // === SNAP+ : boutons Valider / Refuser depuis le site ===
-  if (i.isButton() && i.customId.startsWith("snap_ok_")) {
-    const id = i.customId.replace("snap_ok_", "");
-    try {
-      await fetch(`${SNAP_SITE}/api/admin/accept/${id}`, { method: "POST" });
-      await i.update({ content: "✅ Demande validée", embeds: [], components: [] });
-    } catch (e) {
-      await i.reply({ content: "Erreur serveur", flags: 64 });
-    }
-    return;
-  }
-
-  if (i.isButton() && i.customId.startsWith("snap_no_")) {
-    const id = i.customId.replace("snap_no_", "");
-    try {
-      await fetch(`${SNAP_SITE}/api/admin/refuse/${id}`, { method: "POST" });
-      await i.update({ content: "❌ Demande refusée", embeds: [], components: [] });
-    } catch (e) {
-      await i.reply({ content: "Erreur serveur", flags: 64 });
-    }
     return;
   }
 });
