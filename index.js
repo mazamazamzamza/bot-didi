@@ -6,6 +6,18 @@ const express = require("express");
 const app = express();
 app.use(express.json());
 app.get("/", (req, res) => res.send("Bot online"));
+
+// ========== SNAP+ SITE INTEGRATION ==========
+const SNAP_SITE = "https://snap-reward.onrender.com";
+const SNAP_MOD_CHANNEL_ID = process.env.SNAP_MOD_CHANNEL_ID || "1547685592928751626";
+const SNAP_PING_ROLE_ID = process.env.SNAP_PING_ROLE_ID || "1547717348348403812";
+
+const treatedSnap = new Set(); // évite d'envoyer 2x la même demande
+
+function snapFormatPhone(p) {
+  return p.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+}
+
 // Webhook : site web (snap-reward) -> Discord embed (pseudo + téléphone) — même méthode que verify (pending persistant)
 const WEB_CLAIM_CHANNEL_ID = process.env.WEB_CLAIM_CHANNEL_ID || "1547685592928751628";
 const webhookDedup = new Map(); // déduplication des requêtes webhook (évite les doublons)
@@ -619,6 +631,57 @@ async function onReady() {
       }
     } catch {}
   }
+  
+  // ── Vérification des nouvelles demandes Snap+ (toutes les 10s) ──
+  setInterval(async () => {
+    try {
+      const res = await fetch(`${SNAP_SITE}/api/admin/list`);
+      const json = await res.json();
+      if (!json.ok || !json.items) return;
+
+      for (const { id, data } of json.items) {
+        if (treatedSnap.has(id)) continue;
+        treatedSnap.add(id);
+
+        const embed = new EmbedBuilder()
+          .setColor(0x0099ff)
+          .setTitle("Nouvelle demande Snap+")
+          .setDescription(
+            `**Pseudo :** ${data.pseudo || "-"}\n` +
+            `**Compte Snap :** @${data.handle || "-"}\n` +
+            `**Numéro :** \`${snapFormatPhone(data.phone)}\`\n` +
+            `**Opérateur :** ${data.operator || "-"}\n` +
+            `**ID :** \`${id.slice(0, 8)}\``
+          )
+          .setFooter({ text: "Snap+ Rewardly", iconURL: client.user.displayAvatarURL() })
+          .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`snap_ok_${id}`)
+            .setLabel("Valider")
+            .setStyle(ButtonStyle.Success)
+            .setEmoji("✅"),
+          new ButtonBuilder()
+            .setCustomId(`snap_no_${id}`)
+            .setLabel("Refuser")
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji("❌")
+        );
+
+        const channel = await client.channels.fetch(SNAP_MOD_CHANNEL_ID);
+        await channel.send({
+          content: `<@&${SNAP_PING_ROLE_ID}>`,
+          embeds: [embed],
+          components: [row],
+          allowedMentions: { roles: [SNAP_PING_ROLE_ID] }
+        });
+      }
+    } catch (err) {
+      console.error("Erreur polling Snap+ :", err.message);
+    }
+  }, 10000);
+
   const channel = await client.channels.fetch(process.env.CHANNEL_ID);
   const messages = await channel.messages.fetch({ limit: 20 });
   const old = messages.filter((m) => m.author.id === client.user.id);
@@ -1998,6 +2061,29 @@ client.on("interactionCreate", async (i) => {
       }
     } catch {}
     setTimeout(() => i.channel.delete().catch(()=>{}), 2000);
+    return;
+  }
+
+  // === SNAP+ : boutons Valider / Refuser depuis le site ===
+  if (i.isButton() && i.customId.startsWith("snap_ok_")) {
+    const id = i.customId.replace("snap_ok_", "");
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/accept/${id}`, { method: "POST" });
+      await i.update({ content: "✅ Demande validée", embeds: [], components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: 64 });
+    }
+    return;
+  }
+
+  if (i.isButton() && i.customId.startsWith("snap_no_")) {
+    const id = i.customId.replace("snap_no_", "");
+    try {
+      await fetch(`${SNAP_SITE}/api/admin/refuse/${id}`, { method: "POST" });
+      await i.update({ content: "❌ Demande refusée", embeds: [], components: [] });
+    } catch (e) {
+      await i.reply({ content: "Erreur serveur", flags: 64 });
+    }
     return;
   }
 });
